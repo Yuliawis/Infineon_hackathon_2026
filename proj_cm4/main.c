@@ -117,6 +117,7 @@ int main(void) {
     DBG_PRINTF(motionReady ? "Motion ready\n" : "Motion init failed\n");
 
     // Temporary head test (after gyro calibration, so the movement does not disturb it)
+    /*
     DBG_PRINTF("Head test\n");
     Head_Look(90, 0);
     Cy_SysLib_Delay(1800);
@@ -131,17 +132,27 @@ int main(void) {
     Head_Look(0, 0);
     Cy_SysLib_Delay(1800);
     DBG_PRINTF("Head test done\n");
+    */
 
 
     // Music_FurElise();
 
-    // Motor_Move(2000, 2000, 2000, 2000);     //go forward
-    // CyDelay(5000);
-    // Motor_Move(0, 0, 0, 0);                 //stop
-    // CyDelay(1000);
-    // Motor_Move(-1000, -1000, -1000, -1000); //go back
-    // CyDelay(500);
-    // Motor_Move(0, 0, 0, 0);                 //stop
+    /*
+    Motor_Move(2000, 0, 0, 0);
+    CyDelay(1000);
+    Motor_Move(0, 2000, 0, 0);
+    CyDelay(1000);
+    Motor_Move(0, 0, 2000, 0);
+    CyDelay(1000);
+    Motor_Move(0, 0, 0, 2000);
+    CyDelay(1000);
+    Motor_Move(0, 0, 0, 0);
+    CyDelay(1000);
+    */
+
+    Car_TurnBy(45);
+    Car_TurnBy(-45);
+
 
     // Main loop. Your code goes here.
     for (;;) {

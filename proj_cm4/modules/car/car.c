@@ -4,20 +4,25 @@
 #include "cy_systick.h"
 #include "cybsp.h"
 #include "PCA9685.h"
+#include "motion.h"
+#include "cybsp.h"
+#include <stdlib.h>
 
 /////////////////////PCA9685 drive area///////////////////////////////////
-#define SERVO_FREQUENCY \
-    50  //Define the operating frequency of servo (shared with the motors, same as in Freenove sketches)
-#define MOTOR_SPEED_MIN  -4095  //Define a minimum speed limit for wheels
-#define MOTOR_SPEED_MAX  4095   //Define a maximum speed limit for wheels
-#define PIN_MOTOR_M1_IN1 15     //Define the positive pole of M1
-#define PIN_MOTOR_M1_IN2 14     //Define the negative pole of M1
-#define PIN_MOTOR_M2_IN1 9      //Define the positive pole of M2
-#define PIN_MOTOR_M2_IN2 8      //Define the negative pole of M2
-#define PIN_MOTOR_M3_IN1 12     //Define the positive pole of M3
-#define PIN_MOTOR_M3_IN2 13     //Define the negative pole of M3
-#define PIN_MOTOR_M4_IN1 10     //Define the positive pole of M4
-#define PIN_MOTOR_M4_IN2 11     //Define the negative pole of M4
+#define SERVO_FREQUENCY 50      //Define the operating frequency of servo (shared with the motors, same as in Freenove sketches)
+#define MOTOR_SPEED_MIN -4095    //Define a minimum speed limit for wheels
+#define MOTOR_SPEED_MAX 4095     //Define a maximum speed limit for wheels
+#define PIN_MOTOR_M1_IN1 15      //Define the positive pole of M1
+#define PIN_MOTOR_M1_IN2 14      //Define the negative pole of M1
+#define PIN_MOTOR_M2_IN1 9       //Define the positive pole of M2
+#define PIN_MOTOR_M2_IN2 8       //Define the negative pole of M2
+#define PIN_MOTOR_M3_IN1 12      //Define the positive pole of M3
+#define PIN_MOTOR_M3_IN2 13      //Define the negative pole of M3
+#define PIN_MOTOR_M4_IN1 10      //Define the positive pole of M4
+#define PIN_MOTOR_M4_IN2 11      //Define the negative pole of M4
+#define TURN_SPEED          (1200)
+#define TURN_TOLERANCE_DEG  (1)
+#define TURN_TIMEOUT_MS     (5000u)
 
 
 /* 8MHz IMO clock with 8000000 reload value to generate 1s interrupt */
@@ -126,6 +131,34 @@ void Timing_Init(void) {
 }
 
 /* Get the number of milliseconds since the timing system was initialized by Timing_Init() */
-uint32_t Timing_GetMilliseconds(void) {
-    return milliseconds;
+uint32_t Timing_GetMilliseconds(void)
+{
+   return milliseconds;
 }
+
+
+/* Turn the car in place by delta_deg degrees (positive = left, negative = right).
+ * Blocking: returns when the target heading is reached or after TURN_TIMEOUT_MS.
+ * Needs Motion_Init() and Timing_Init() to be called before. */
+void Car_TurnBy(int16_t delta_deg)
+{
+    int16_t target = Motion_GetYaw() + delta_deg;   // Motion_GetYawError() wraps the angle itself
+    uint32_t start = Timing_GetMilliseconds();
+
+    while (abs(Motion_GetYawError(target)) > TURN_TOLERANCE_DEG)
+    {
+        if (Timing_GetMilliseconds() - start > TURN_TIMEOUT_MS)
+        {
+            break;   // safety: the IMU is stuck or the car does not turn
+        }
+        if (!Motion_Update())
+        {
+            continue;   // no new sensor sample yet
+        }
+        // error > 0 means turn left: left wheels backward, right wheels forward
+        int s = (Motion_GetYawError(target) > 0) ? TURN_SPEED : -TURN_SPEED;
+        Motor_Move(-s, -s, s, s);   // check on the real car which motors are left/right
+    }
+    Motor_Move(0, 0, 0, 0);
+}
+
