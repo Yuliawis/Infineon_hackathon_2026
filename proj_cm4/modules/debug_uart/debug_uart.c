@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include "debug_uart.h"
+#include "car.h"  // Timing_GetMilliseconds()
 #include "cybsp.h"
 #include "cy_retarget_io.h"
 #include "log_fifo.h"
@@ -31,12 +32,46 @@ static void debugVprintf(bool toBle, const char* fmt, va_list args) {
     (void) len;  // unused when neither output is enabled
     (void) toBle;
 
+#if DEBUG_TIMESTAMP
+    // Put "[s.mmm] " (time since Timing_Init()) at the start of every non-empty line.
+    // A line may be built from several calls, so remember whether the last call ended one.
+    static bool atLineStart = true;
+    char out[DEBUG_LINE_MAX + 3u * DEBUG_STAMP_MAX];  // room for 3 stamps, the rest is cut
+    size_t outLen = 0;
+    uint32_t ms = Timing_GetMilliseconds();
+
+    for (size_t i = 0; i < len; i++) {
+        if (atLineStart && (buf[i] != '\n')) {
+            if (outLen + DEBUG_STAMP_MAX > sizeof(out)) {
+                break;
+            }
+            int s = snprintf(&out[outLen], sizeof(out) - outLen, "[%lu.%03lu] ", (unsigned long) (ms / 1000u),
+                             (unsigned long) (ms % 1000u));
+            if (s > 0) {
+                outLen += (size_t) s;
+            }
+        }
+        if (outLen >= sizeof(out)) {
+            break;
+        }
+        out[outLen++] = buf[i];
+        atLineStart = (buf[i] == '\n');
+    }
+    atLineStart = (buf[len - 1u] == '\n');  // also right when the text above was cut
+
+    const char* text = out;
+    len = outLen;
+#else
+    const char* text = buf;
+#endif
+    (void) text;
+
 #if DEBUG_UART_OWNER
-    fwrite(buf, 1u, len, stdout);
+    fwrite(text, 1u, len, stdout);
 #endif
 #if defined(BLE_LOG_ENABLED)
     if (toBle) {
-        (void) LogFifo_Push(&bleLogFifo, (const uint8_t*) buf, len);
+        (void) LogFifo_Push(&bleLogFifo, (const uint8_t*) text, len);
     }
 #endif
 }

@@ -18,6 +18,7 @@ Connect before the car starts moving. Close the window or press Ctrl-C to stop.
 
 import argparse
 import asyncio
+import re
 import sys
 import threading
 from typing import Callable, Optional
@@ -35,6 +36,7 @@ DY = (-1, 0, 1, 0)  # y grows to the south (like the firmware map)
 
 EDGE_UNKNOWN, EDGE_WALL, EDGE_OPEN = range(3)
 MAX_MARKS = 2
+TIMESTAMP_RE = re.compile(r"^\[\d+\.\d{3}\] ")
 
 COLOR_VISITED = "#dcedc8"
 COLOR_FRONTIER = "#fff3c4"  # seen as open from a neighbour, not scanned yet
@@ -73,6 +75,7 @@ class MazeMap:
 
     def feed(self, line: str) -> bool:
         """Apply one log line. Returns True if it was a map event."""
+        line = TIMESTAMP_RE.sub("", line, count=1)  # firmware may prefix "[s.mmm] " (DEBUG_TIMESTAMP)
         if not line.startswith("@"):
             return False
         parts = line[1:].split()
