@@ -20,7 +20,14 @@ void Motor_Init(void);                //servo initialization
 void Motor_Move(int m1_speed, int m2_speed, int m3_speed, int m4_speed);//A function to control the car motor
 
 ///////////////////// MOTION HELPERS //////////////////////////////////////////
+// Take the current yaw as the commanded heading. Call with the car still and aligned to the walls.
+void Car_ResetHeading(void);
+
+// Absolute heading (gyro yaw, degrees) that turns and drives aim at.
+int16_t Car_GetHeading(void);
+
 // Blocking in-place turn using the gyro: positive = left, negative = right.
+// Relative to the commanded heading (not the current yaw), so turn errors do not add up.
 void Car_TurnBy(int16_t delta_deg);
 
 // Blocking straight drive by about mm millimeters, heading held by the gyro, front distance used if available.

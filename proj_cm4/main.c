@@ -250,6 +250,7 @@ static void mazeExploreStep(void) {
         started = true;
         DBG_PRINTF("Maze: start in %u ms\n", (unsigned) MAZE_START_DELAY_MS);
         Cy_SysLib_Delay(MAZE_START_DELAY_MS);
+        Car_ResetHeading();    // the car stands aligned to the walls: this is heading 0
         driveForward(MAZE_ENTRY_MM, true);    // to the center of the first cell
         Maze_Init();
     }

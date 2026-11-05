@@ -27,10 +27,9 @@
 #define TURN_COAST_MS_MAX   (600)   // limit for the learned value
 #define TURN_SETTLE_MS      (300)   // wait after stopping, while the car slides
 #define TURN_SPEED          (1000)  // max turning speed, far from the target
-#define TURN_SPEED_MIN      (700)   // min speed near the target (too low = wheels stall)
+#define TURN_SPEED_MIN      (750)   // min speed near the target (too low = wheels stall)
 #define TURN_SLOWDOWN_DEG   (30)    // start slowing down this many degrees before the target
-#define TURN_ANGLE_PERCENT  (100)   // turns too far -> lower (e.g. 80), too short -> raise
-#define TURN_TOLERANCE_DEG  (5)     // stop when this close to the target
+#define TURN_TOLERANCE_DEG  (4)     // stop when this close to the target
 #define TURN_TIMEOUT_MS     (5000u)
 #define DRIVE_SPEED         (1500)    // wheel speed while driving straight
 #define DRIVE_HEADING_GAIN  (30)      // speed correction per degree of heading error
@@ -152,14 +151,39 @@ uint32_t Timing_GetMilliseconds(void)
 }
 
 
+///////////////////// HEADING ////////////////////////////////////////////////
+// Absolute heading (gyro yaw) the car should face. Turns and straight drives aim at it,
+// so the leftover error of one turn is fixed by the next move instead of adding up.
+static int16_t commanded_yaw = 0;
+
+static int16_t wrap_deg(int32_t a)
+{
+    a %= 360;
+    if (a > 180) { a -= 360; }
+    if (a <= -180) { a += 360; }
+    return (int16_t)a;
+}
+
+void Car_ResetHeading(void)
+{
+    (void)Motion_Update();
+    commanded_yaw = Motion_GetYaw();
+}
+
+int16_t Car_GetHeading(void)
+{
+    return commanded_yaw;
+}
+
 /* Turn the car in place by delta_deg degrees (positive = left, negative = right).
+ * The turn is relative to the commanded heading, not to the current yaw, so errors do not accumulate.
  * Blocking: returns when the target heading is reached or after TURN_TIMEOUT_MS.
- * Needs Motion_Init() and Timing_Init() to be called before. */
+ * Needs Motion_Init(), Timing_Init() and Car_ResetHeading() to be called before. */
 void Car_TurnBy(int16_t delta_deg)
 {
     (void)Motion_Update();   // fresh yaw before taking the start heading
-    int16_t scaled = (int16_t)((int32_t)delta_deg * TURN_ANGLE_PERCENT / 100);
-    int16_t target = Motion_GetYaw() + scaled;   // Motion_GetYawError() wraps the angle itself
+    commanded_yaw = wrap_deg((int32_t)commanded_yaw + delta_deg);
+    int16_t target = commanded_yaw;   // Motion_GetYawError() wraps the angle itself
 
     // Coast time is learned from turn to turn (slippery floor -> it grows by itself)
     static int32_t coast_ms = TURN_COAST_MS_INIT;
@@ -252,7 +276,7 @@ void Car_DriveForward(uint16_t mm)
                       && front_mm >= mm + DRIVE_SENSOR_MARGIN_MM;
     uint16_t stop_mm = use_sensor ? (uint16_t)(front_mm - mm) : 0;
     uint32_t duration_ms = (uint32_t)mm * 1000u / DRIVE_MM_PER_SECOND;
-    int16_t heading = Motion_GetYaw();
+    int16_t heading = commanded_yaw;   // absolute heading, so leftover turn error is corrected too
     uint32_t start = Timing_GetMilliseconds();
 
     while (1)
