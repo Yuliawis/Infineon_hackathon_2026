@@ -47,7 +47,6 @@
 #include "motion.h"
 #include "head.h"
 #include "distance.h"
-#include "music.h"
 #include "ledctrl.h"
 #include "i2c_common.h"
 #include "debug_uart.h"
@@ -137,7 +136,6 @@ int main(void) {
     if (!Head_Init()) {
         DBG_PRINTF("Head init failed\n");
     }
-    Sound_Init();
     (void) Leds_Init();
 
     Timing_Init();
@@ -153,44 +151,6 @@ int main(void) {
     // Keep the car still during gyro calibration
     bool motionReady = Motion_Init();
     DBG_PRINTF(motionReady ? "Motion ready\n" : "Motion init failed\n");
-
-    // Temporary head test (after gyro calibration, so the movement does not disturb it)
-    /*
-    DBG_PRINTF("Head test\n");
-    Head_Look(90, 0);
-    Cy_SysLib_Delay(1800);
-    Head_Look(-90, 0);
-    Cy_SysLib_Delay(1800);
-    Head_Look(0, 0);
-    Cy_SysLib_Delay(800);
-    Head_Look(0, 10);
-    Cy_SysLib_Delay(1800);
-    Head_Look(0, -20);
-    Cy_SysLib_Delay(1800);
-    Head_Look(0, 0);
-    Cy_SysLib_Delay(1800);
-    DBG_PRINTF("Head test done\n");
-    */
-
-
-    // Music_FurElise();
-
-    /*
-    Motor_Move(2000, 0, 0, 0);
-    CyDelay(1000);
-    Motor_Move(0, 2000, 0, 0);
-    CyDelay(1000);
-    Motor_Move(0, 0, 2000, 0);
-    CyDelay(1000);
-    Motor_Move(0, 0, 0, 2000);
-    CyDelay(1000);
-    Motor_Move(0, 0, 0, 0);
-    CyDelay(1000);
-    */
-
-    Car_TurnBy(45);
-    Car_TurnBy(-45);
-
 
     // Main loop. Your code goes here.
     for (;;) {
