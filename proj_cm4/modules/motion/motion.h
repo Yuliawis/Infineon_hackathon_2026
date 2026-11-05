@@ -10,19 +10,18 @@ extern "C" {
 
 // Assumes the MPU6050 is mounted flat on the car: Z axis up, X axis forward.
 // If it is mounted differently, change the signs here (or swap axes in motion.c).
-#define MOTION_YAW_DIRECTION     1 //If the yaw sign is reversed, change 1 to -1
+#define MOTION_YAW_DIRECTION 1  //If the yaw sign is reversed, change 1 to -1
 
 // Minimal period between two sensor readings. Motion_Update() does nothing if called more often.
-#define MOTION_UPDATE_PERIOD_MS  (10u)
+#define MOTION_UPDATE_PERIOD_MS (10u)
 
 // Yaw rate (millidegrees per second) above which the car is considered turning.
 #define MOTION_TURN_RATE_THRESHOLD_MDPS (5000)
 
-typedef enum
-{
-  MOTION_TURN_NONE = 0,
-  MOTION_TURN_LEFT,             // counterclockwise seen from above
-  MOTION_TURN_RIGHT             // clockwise seen from above
+typedef enum {
+    MOTION_TURN_NONE = 0,
+    MOTION_TURN_LEFT,  // counterclockwise seen from above
+    MOTION_TURN_RIGHT  // clockwise seen from above
 } Motion_TurnState;
 
 ///////////////////// INIT ////////////////////////////////////////////////////

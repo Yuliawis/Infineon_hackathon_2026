@@ -27,24 +27,24 @@ extern "C" {
  * 2. Pin P12[6]: alias ULTRA_TRIG, strong drive, connected to the PWM line above.
  * 3. Pin P12[7]: alias ULTRA_ECHO, Digital High-Z with input buffer, Interrupt trigger: Both edges. */
 
-  /* Needs cybsp_init() before. Returns false when the configuration is wrong: the clock is not a whole number
+/* Needs cybsp_init() before. Returns false when the configuration is wrong: the clock is not a whole number
    * of MHz, the Trig pulse is shorter than 10 us or the period is shorter than 40 ms. */
-  bool HCSR04_Init(void);
+bool HCSR04_Init(void);
 
-  void HCSR04_Start(void);
-  void HCSR04_Stop(void);
+void HCSR04_Start(void);
+void HCSR04_Stop(void);
 
-  /* Two ways to get the results. Both can be used, the measurements are stored in any case.
+/* Two ways to get the results. Both can be used, the measurements are stored in any case.
    * 1. HCSR04_getEcho(): length of the last Echo pulse in microseconds, false when there was no echo in the
    *    last period. measurement_number counts finished measurements since HCSR04_Start(), with or without an
    *    echo, to tell a new one from an old one. Both are read in one step, either pointer may be NULL.
    * 2. A callback, called from the interrupt after every finished measurement (has_echo is false when the
    *    sound did not come back in the period). Keep it short. Set it before HCSR04_Start(), NULL removes it.
    * When nothing reflects the sound the sensor holds Echo for about 38 ms, this is not rejected here. */
-  bool HCSR04_getEcho(uint32_t *echo_us, uint32_t *measurement_number);
+bool HCSR04_getEcho(uint32_t* echo_us, uint32_t* measurement_number);
 
-  typedef void (*HCSR04_MeasurementCallback)(bool has_echo, uint32_t echo_us);
-  void HCSR04_setMeasurementCallback(HCSR04_MeasurementCallback callback);
+typedef void (*HCSR04_MeasurementCallback)(bool has_echo, uint32_t echo_us);
+void HCSR04_setMeasurementCallback(HCSR04_MeasurementCallback callback);
 
 #ifdef __cplusplus
 }

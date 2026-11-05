@@ -17,14 +17,13 @@
 #ifndef CM0_CM4_SHARED_COMMAND_LIST_H
 #define CM0_CM4_SHARED_COMMAND_LIST_H
 
-enum cm0SharedCMD
-{
+enum cm0SharedCMD {
     CM0_SHARED_START = 0x00,
     CM0_SHARED_BLE_NTF_RELAY = 0x01,
     CM0_SHARED_CAR_SAY = 0x02,
     CM0_SHARED_END = CM0_SHARED_CAR_SAY
 };
-    
+
 #endif /* CM0_CM4_SHARED_COMMAND_LIST_H */
-    
+
 /* [] END OF FILE */

@@ -18,11 +18,11 @@ int constrain_int(int x, int a, int b);
 float constrain_float(float x, float a, float b);
 
 
-// Re-maps a number from one range to another. That is, a value of fromLow 
-// would get mapped to toLow, a value of fromHigh to toHigh, values 
+// Re-maps a number from one range to another. That is, a value of fromLow
+// would get mapped to toLow, a value of fromHigh to toHigh, values
 // in-between to values in-between, etc.
-// Does not constrain values to within the range, because out-of-range 
-// values are sometimes intended and useful. The constrain() function may 
+// Does not constrain values to within the range, because out-of-range
+// values are sometimes intended and useful. The constrain() function may
 // be used either before or after this function, if limits to the ranges are
 // desired.
 // Note that the "lower bounds" of either range may be larger or smaller than

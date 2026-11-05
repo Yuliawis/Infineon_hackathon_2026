@@ -11,13 +11,13 @@
     This is a tradeoff (3 actual SPI clocks for 1 real color bit), but it is a fast and simple solution.
     You can also use PWM + DMA, but this would involve heavy work with double buffering and Interrupts.
 ***************************************************************************************************** */
-    
+
 // Car has 12 WS2812 LEDs connected
 #define WS2812_LED_QTY 12u
 
 // RGB leds operate with 3 colors (obviously)
 #define WS2812_COLORS_QTY 3u
-    
+
 // Size of buffer is LED amount times 24. Simulates 24 bits but with bytes because we use SPI hacks
 #define WS2812_BUFFER_SIZE (WS2812_LED_QTY * 24)
 
@@ -81,5 +81,5 @@ void Leds_FillSolidColor(uint8_t g, uint8_t r, uint8_t b);
 void Leds_Update(void);
 
 #endif /* LEDCTRL_H */
-    
+
 /* [] END OF FILE */

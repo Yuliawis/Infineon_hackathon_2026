@@ -12,7 +12,7 @@ cy_rslt_t Debug_Init(void);
 #include <stdio.h>
 #define DBG_PRINTF(...) printf(__VA_ARGS__)
 #else
-#define DBG_PRINTF(...) ((void)0)
+#define DBG_PRINTF(...) ((void) 0)
 #endif
 
 #endif /* DEBUG_UART_H */

@@ -4,7 +4,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-    
+
 void Music_FurElise(void);
 void Music_ViennaWaltz(void);
 void Music_Technopolis(void);
@@ -14,4 +14,3 @@ void Music_Technopolis(void);
 #endif
 
 #endif /* MUSIC_H */
- 

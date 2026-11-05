@@ -47,23 +47,20 @@
 #include "cm0_ipc.h"
 #include "ble_nus_subsys.h"
 
-int main(void)
-{
+int main(void) {
     /* Enable global interrupts */
     __enable_irq();
-    
+
     cy_rslt_t result;
 
     /* Initialize the device and board peripherals */
-    result = cybsp_init() ;
-    if (result != CY_RSLT_SUCCESS)
-    {
+    result = cybsp_init();
+    if (result != CY_RSLT_SUCCESS) {
         CY_ASSERT(0);
     }
 
 #if defined(RETARGET_CORE_CM0P)
-    if (Debug_Init() != CY_RSLT_SUCCESS)
-    {
+    if (Debug_Init() != CY_RSLT_SUCCESS) {
         CY_ASSERT(0);
     }
 #endif
@@ -74,8 +71,7 @@ int main(void)
 
     BLE_NUS_Init();
 
-    for (;;)
-    {
+    for (;;) {
         Cy_SysLib_Delay(1);
     }
 }

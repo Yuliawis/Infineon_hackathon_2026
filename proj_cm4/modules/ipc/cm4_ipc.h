@@ -17,7 +17,7 @@
 *   msg: IPC message received
 *
 *******************************************************************************/
-void CM4_MessageCallback(uint32_t *msg);
+void CM4_MessageCallback(uint32_t* msg);
 
 /*******************************************************************************
 * Function Name: CM4_ReleaseCallback()

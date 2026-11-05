@@ -15,9 +15,8 @@
 
 #include "cy_ble_stack.h"
 
-enum blePayloadTypes
-{
-    BLE_NUS_PAYLOAD_START   = 0x00u,
+enum blePayloadTypes {
+    BLE_NUS_PAYLOAD_START = 0x00u,
     BLE_NUS_PAYLOAD_CM0_CMD = 0x01u,
     BLE_NUS_PAYLOAD_CM4_CMD = 0x02u,
     BLE_NUS_PAYLOAD_END = BLE_NUS_PAYLOAD_CM4_CMD
