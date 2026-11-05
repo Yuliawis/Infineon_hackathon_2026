@@ -18,9 +18,9 @@ BreakBeforeBraces: Attach # Attach (K&R), Linux, Allman, GNU, Stroustrup, WebKit
 
 # Short statements on one line
 AllowShortFunctionsOnASingleLine: InlineOnly # None, InlineOnly, Empty, Inline, All
-AllowShortIfStatementsOnASingleLine: WithoutElse # Never, WithoutElse, OnlyFirstIf, AllIfsAndElse
-AllowShortLoopsOnASingleLine: true
-AllowShortBlocksOnASingleLine: Always # Never, Empty, Always
+AllowShortIfStatementsOnASingleLine: Never # Never, WithoutElse, OnlyFirstIf, AllIfsAndElse
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never # Never, Empty, Always
 AllowShortCaseLabelsOnASingleLine: true
 
 # Spacing
@@ -47,4 +47,4 @@ AlwaysBreakAfterReturnType: None # None, All, TopLevel, AllDefinitions, TopLevel
 SortIncludes: Never # Never, CaseSensitive, CaseInsensitive; Never keeps manual order
 
 # Comments
-CommentPragmas: '^ USER CODE' # don't reflow CubeMX markers
+ReflowComments: Never # Never, IndentOnly, Always; Never keeps license headers intact
