@@ -1,6 +1,9 @@
 # Documentation
 images
 
+# Host tests: they have their own main() and are built with gcc, not for the board
+tests
+
 # Exports, Project settings
 .mtbLaunchConfigs
 .settings

@@ -46,18 +46,26 @@
 #include "car.h"
 #include "motion.h"
 #include "head.h"
-#include "distance.h"
 #include "music.h"
 #include "ledctrl.h"
 #include "i2c_common.h"
 #include "debug_uart.h"
 #include "cm4_ipc.h"
 
+/* The autonomous maze run. sense, drive and navigator each need their update called from the main
+ * loop; config.h holds the tunables. */
+#include "config.h"
+#include "drive.h"
+#include "navigator.h"
+#include "sense.h"
+
 #include "cm0_cm4_shared_cmd.h"
 #include "cm4_command_list.h"
 
-#define MOTION_PRINT_PERIOD_MS   (500u)
-#define DISTANCE_PRINT_PERIOD_MS (500u)
+/* Only used by the demo prints in the loop below, which are commented out while the car drives
+ * itself: printing on every pass would slow the loop down and the gyro integration with it. */
+/* #define MOTION_PRINT_PERIOD_MS   (500u) */
+/* #define DISTANCE_PRINT_PERIOD_MS (500u) */
 
 ipc_msg_t ipcMsgForCM0 = {/* IPC structure to be sent to CM0 */
                           .clientId = IPC_CM4_TO_CM0_CLIENT_ID,
@@ -104,6 +112,9 @@ int main(void) {
 
     Timing_Init();
 
+    /* The ultrasonic sensor now belongs to the sense module, which Navigator_Init() sets up below.
+     * Starting it here as well would clear the filter behind that module's back. */
+    /*
     // DISTANCE_MODE_AUTO filters in the background, DISTANCE_MODE_MANUAL needs Distance_Update() in the loop
     bool distanceReady = Distance_Init(DISTANCE_MODE_AUTO);
     if (distanceReady) {
@@ -111,6 +122,7 @@ int main(void) {
     } else {
         DBG_PRINTF("Ultrasonic init failed\n");
     }
+    */
 
     // Keep the car still during gyro calibration
     bool motionReady = Motion_Init();
@@ -150,9 +162,29 @@ int main(void) {
     CyDelay(1000);
     */
 
+    /* Blocking turn demo, replaced by the non-blocking turn inside the drive module */
+    /*
     Car_TurnBy(45);
     Car_TurnBy(-45);
+    */
 
+    /* Set up the maze run. Needs everything above: I2C, the motors, the head, the timer and the
+     * gyro. Sense_Init() inside takes over the ultrasonic sensor. */
+    const bool navigatorReady = Navigator_Init();
+    if (!navigatorReady) {
+        DBG_PRINTF("Navigator init failed, the car will not drive\n");
+    }
+
+    /* The run starts on its own after a pause, so there is time to put the car down and move the USB
+     * cable out of the way. The car stands still during the pause.
+     *
+     * To start the run from the phone instead, comment out these three lines: CM4_COMMAND_RUN_START
+     * does the same thing, and CM4_COMMAND_RUN_STOP halts the car from a distance. */
+    if (navigatorReady && motionReady) {
+        DBG_PRINTF("Run starts in %lu ms\n", (unsigned long) CONFIG_RUN_START_DELAY_MS);
+        Cy_SysLib_Delay(CONFIG_RUN_START_DELAY_MS);
+        Navigator_Start();
+    }
 
     // Main loop. Your code goes here.
     for (;;) {
@@ -161,6 +193,26 @@ int main(void) {
             processIncomingIPCMessage(CM4_GetCM0Message());
         }
 
+        /* The maze run, in this order on every single pass.
+         *
+         * Motion_Update() first: it integrates the gyro heading, and both the turns and the straight
+         * driving steer by it, so a pass that skips it steers on stale data. It does nothing more
+         * often than every 10 ms on its own.
+         *
+         * Navigator_Update() last, so that it sees the results sense and drive finished in this same
+         * pass instead of one pass later.
+         *
+         * Nothing here blocks, which is the whole reason the modules are written as state machines. */
+        (void) Motion_Update();
+        Sense_Update();
+        Drive_Update();
+        Navigator_Update();
+
+        /* Demo code from the template. It prints on the debug UART and paints the LEDs by distance.
+         * Left here on purpose as a reference for the APIs, but switched off: it reads the ultrasonic
+         * sensor that the sense module now owns, and printing every 500 ms competes with the state
+         * machines for the loop. */
+        /*
         if (distanceReady) {
             static uint32_t lastDistancePrintMs = 0;
             uint32_t nowMs = Timing_GetMilliseconds();
@@ -210,6 +262,7 @@ int main(void) {
                 DBG_PRINTF("yaw %d deg, rate %d dps\n", Motion_GetYaw(), Motion_GetYawRate());
             }
         }
+        */
     }
 }
 
@@ -256,6 +309,15 @@ static void processCM4Command(enum cm4CommandList cmd) {
                 ipcMsgForCM0.buffer[0] = (uint8_t) CM0_SHARED_CAR_SAY;
                 CM4_SendCM0Message(&ipcMsgForCM0);
             }
+            break;
+        }
+        case CM4_COMMAND_RUN_START: {
+            Navigator_Start();
+            break;
+        }
+        case CM4_COMMAND_RUN_STOP: {
+            /* The remote kill switch: stops the motors wherever the car is. */
+            Navigator_Stop();
             break;
         }
         case CM4_COMMAND_ECHO: {

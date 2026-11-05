@@ -20,7 +20,11 @@ enum cm4CommandList {
     CM4_COMMAND_LED_DIS = 0x02,
     CM4_COMMAND_CAR_SAY = 0x03,
     CM4_COMMAND_ECHO = 0x04,
-    CM4_COMMAND_END = CM4_COMMAND_ECHO,
+    // Start and stop the autonomous maze run from the phone. The stop is the remote kill switch:
+    // an autonomous car needs a way to be halted that does not involve catching it.
+    CM4_COMMAND_RUN_START = 0x05,
+    CM4_COMMAND_RUN_STOP = 0x06,
+    CM4_COMMAND_END = CM4_COMMAND_RUN_STOP,
 };
 
 #endif /* CM4_COMMAND_LIST_H */
