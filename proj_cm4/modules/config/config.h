@@ -113,22 +113,54 @@ extern "C" {
  * TODO MEASURE: raise the value until the car starts moving reliably from standstill. */
 #define CONFIG_PWM_MIN (800)
 
-/* Output used for a straight step and for a turn in place. Car_TurnBy() in car.c uses 1200 for
- * turning, which is a working starting point. START. */
+/* Output used for a straight step. START. */
 #define CONFIG_PWM_STEP (1600)
-#define CONFIG_PWM_TURN (1200)
 
 /* How hard the car steers back onto its heading while stepping, in PWM units per degree of error.
  * Too small and the car drifts, too large and it weaves from side to side.
  * At the correction limit of 10 degrees this gives 400, a quarter of the step speed. START. */
 #define CONFIG_HEADING_GAIN_PWM_PER_DEG (40)
 
-/* A turn in place is finished when the heading is this close to the target. Taken from Car_TurnBy()
- * in car.c, which uses 1 degree and works. */
-#define CONFIG_TURN_TOLERANCE_DEG (1)
+/* Turning in place on a slippery floor.
+ *
+ * MEASURED on the real car: these come from the reworked Car_TurnBy() in car.c on the simple_pass
+ * branch, where they were tuned on slippery tiles. The car keeps sliding after the motors stop, so a
+ * turn that just spins at full speed until the heading matches always overshoots and then hunts back
+ * and forth. Three things fix that: slow down near the target, cut the motors early by the angle the
+ * car is expected to slide, and accept a few degrees of error instead of chasing one. */
 
-/* A turn that takes longer than this is given up on, so a stuck wheel or a dead gyro cannot hold the
- * whole run. Taken from Car_TurnBy(). */
+/* A turn is finished when the heading is this close to the target. Five degrees, not one: on a
+ * slippery floor the car physically cannot settle inside one degree, and a tighter value only makes
+ * it swing past the target over and over until the timeout. */
+#define CONFIG_TURN_TOLERANCE_DEG (5)
+
+/* Output far from the target, and near it. Below the minimum the wheels stall instead of turning. */
+#define CONFIG_TURN_SPEED_MAX (1000)
+#define CONFIG_TURN_SPEED_MIN (700)
+
+/* The output ramps down from MAX to MIN over this last stretch before the target. */
+#define CONFIG_TURN_SLOWDOWN_DEG (30)
+
+/* Scale for the commanded angle, as a percentage, to cancel a scale error in the gyro: turns too far
+ * means lower it, turns too short means raise it. Check by commanding a full 360 and measuring what
+ * the car actually did. */
+#define CONFIG_TURN_ANGLE_PERCENT (100)
+
+/* How long the car is expected to keep rotating after the motors are cut. This is only the starting
+ * value: the car corrects it after every first-pass turn from how far it actually slid, so a floor
+ * that is more slippery than expected is learned instead of configured. */
+#define CONFIG_TURN_COAST_MS_INIT (150)
+#define CONFIG_TURN_COAST_MS_MAX (600)
+
+/* Standing still after the motors are cut, so the slide finishes before the heading is judged. The
+ * gyro keeps being read during it, otherwise the rotation that happens here would be lost. */
+#define CONFIG_TURN_SETTLE_MS (300u)
+
+/* Extra slow passes allowed to correct what is left after the first pass. Normally none are needed. */
+#define CONFIG_TURN_MAX_CORRECTIONS (2u)
+
+/* A turn that takes longer than this in total, corrections included, is given up on, so a stuck
+ * wheel or a dead gyro cannot hold up the whole run. Taken from Car_TurnBy(). */
 #define CONFIG_TURN_TIMEOUT_MS (5000u)
 
 /* Pause between the two halves of a half turn, so the car stands still and the gyro settles before
@@ -153,7 +185,24 @@ extern "C" {
 #define CONFIG_HEAD_PAN_FRONT_DEG (0)
 #define CONFIG_HEAD_PAN_LEFT_DEG  (90)
 
-/* Tilt used for all scanning: level, straight at the walls. */
+/* Tilt used for all scanning, the same for every direction. Positive is up, the head limits are
+ * -20 to 10 (see head.h).
+ *
+ * MEASURED on the car: the sensor sits 90 mm above the floor and the walls are 135 mm tall, so the
+ * top of a wall is 45 mm ABOVE the beam. The beam can never fly over a wall, which is the only thing
+ * a downward tilt would have been good for. Level it is.
+ *
+ * Tilting down would actively hurt here. A tilted beam ends up on the floor, which answers like a
+ * wall at that distance, and that distance is the height divided by the tangent of the angle. The
+ * beam is about 14 degrees wide, so what matters is its lower edge, not its centre:
+ *
+ *   tilt    lower edge    floor answers at
+ *    0         -7 deg         733 mm     beyond CONFIG_RIGHT_OPEN_MM, harmless
+ *   -5        -12 deg         423 mm     inside the "wall" range already
+ *  -15        -22 deg         223 mm     every direction reads as a wall, the car spins forever
+ *
+ * Grazing echoes off hard tiles are weak, which is why the lower edge at 0 degrees causes no
+ * trouble. That stops being true as the angle steepens. */
 #define CONFIG_HEAD_TILT_DEG (0)
 
 /* Time the servo needs to travel to a new angle. The servos do not report their position, so this is

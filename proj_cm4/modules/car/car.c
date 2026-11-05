@@ -20,8 +20,16 @@
 #define PIN_MOTOR_M3_IN2 13      //Define the negative pole of M3
 #define PIN_MOTOR_M4_IN1 10      //Define the positive pole of M4
 #define PIN_MOTOR_M4_IN2 11      //Define the negative pole of M4
-#define TURN_SPEED          (1200)
-#define TURN_TOLERANCE_DEG  (1)
+// ---- Turn tuning (edit these if the turn angle is wrong) ----
+#define TURN_MAX_CORRECTIONS (2)    // extra slow passes to fix an overshoot (backup only)
+#define TURN_COAST_MS_INIT  (150)   // first guess: how long the car keeps rotating after stop
+#define TURN_COAST_MS_MAX   (600)   // limit for the learned value
+#define TURN_SETTLE_MS      (300)   // wait after stopping, while the car slides
+#define TURN_SPEED          (1000)  // max turning speed, far from the target
+#define TURN_SPEED_MIN      (700)   // min speed near the target (too low = wheels stall)
+#define TURN_SLOWDOWN_DEG   (30)    // start slowing down this many degrees before the target
+#define TURN_ANGLE_PERCENT  (100)   // turns too far -> lower (e.g. 80), too short -> raise
+#define TURN_TOLERANCE_DEG  (5)     // stop when this close to the target
 #define TURN_TIMEOUT_MS     (5000u)
 
 
@@ -142,23 +150,86 @@ uint32_t Timing_GetMilliseconds(void)
  * Needs Motion_Init() and Timing_Init() to be called before. */
 void Car_TurnBy(int16_t delta_deg)
 {
-    int16_t target = Motion_GetYaw() + delta_deg;   // Motion_GetYawError() wraps the angle itself
-    uint32_t start = Timing_GetMilliseconds();
+    (void)Motion_Update();   // fresh yaw before taking the start heading
+    int16_t scaled = (int16_t)((int32_t)delta_deg * TURN_ANGLE_PERCENT / 100);
+    int16_t target = Motion_GetYaw() + scaled;   // Motion_GetYawError() wraps the angle itself
 
-    while (abs(Motion_GetYawError(target)) > TURN_TOLERANCE_DEG)
+    // Coast time is learned from turn to turn (slippery floor -> it grows by itself)
+    static int32_t coast_ms = TURN_COAST_MS_INIT;
+    int32_t stop_rate_dps = 0;   // rotation speed at the moment the motors stopped
+    int16_t turn_dir = (Motion_GetYawError(target) > 0) ? 1 : -1;   // +1 left, -1 right
+
+    // First pass stops early, by the angle the car is expected to slide.
+    // The next passes only fix what is left (normally they are not needed).
+    for (int pass = 0; pass <= TURN_MAX_CORRECTIONS; pass++)
     {
-        if (Timing_GetMilliseconds() - start > TURN_TIMEOUT_MS)
+        if (abs(Motion_GetYawError(target)) <= TURN_TOLERANCE_DEG)
         {
-            break;   // safety: the IMU is stuck or the car does not turn
+            break;
         }
-        if (!Motion_Update())
+        uint32_t start = Timing_GetMilliseconds();
+        while (abs(Motion_GetYawError(target)) > TURN_TOLERANCE_DEG)
         {
-            continue;   // no new sensor sample yet
+            if (Timing_GetMilliseconds() - start > TURN_TIMEOUT_MS)
+            {
+                break;   // safety: the IMU is stuck or the car does not turn
+            }
+            if (!Motion_Update())
+            {
+                continue;   // no new sensor sample yet
+            }
+            int16_t err = Motion_GetYawError(target);
+
+            // Predict the slide: angle = rotation speed * coast time. Stop that much earlier.
+            if (pass == 0)
+            {
+                int32_t rate = Motion_GetYawRate();   // deg/s, positive = left
+                bool towardTarget = (rate > 0) == (err > 0);
+                int32_t coast_deg = abs(rate) * coast_ms / 1000;
+                if (towardTarget && abs(err) <= TURN_TOLERANCE_DEG + coast_deg)
+                {
+                    stop_rate_dps = abs(rate);
+                    break;
+                }
+            }
+
+            // Slow down near the target so momentum does not carry the car past it.
+            // Correction passes always go slowly.
+            int speed = TURN_SPEED_MIN;
+            if (pass == 0 && abs(err) >= TURN_SLOWDOWN_DEG)
+            {
+                speed = TURN_SPEED;
+            }
+            else if (pass == 0)
+            {
+                speed = TURN_SPEED_MIN + (TURN_SPEED - TURN_SPEED_MIN) * abs(err) / TURN_SLOWDOWN_DEG;
+            }
+
+            // error > 0 means turn left: left wheels backward, right wheels forward
+            int s = (err > 0) ? speed : -speed;
+            Motor_Move(-s, -s, s, s);   // check on the real car which motors are left/right
         }
-        // error > 0 means turn left: left wheels backward, right wheels forward
-        int s = (Motion_GetYawError(target) > 0) ? TURN_SPEED : -TURN_SPEED;
-        Motor_Move(-s, -s, s, s);   // check on the real car which motors are left/right
+        Motor_Move(0, 0, 0, 0);
+        Car_Wait(TURN_SETTLE_MS);   // keeps reading the gyro while the car slides to a stop
+
+        // Learn from the first pass: overshoot > 0 means it slid past the target
+        if (pass == 0 && stop_rate_dps > 0)
+        {
+            int32_t overshoot = -Motion_GetYawError(target) * turn_dir;
+            coast_ms += overshoot * 1000 / stop_rate_dps / 2;   // half step, so it does not jump around
+            if (coast_ms < 0) { coast_ms = 0; }
+            if (coast_ms > TURN_COAST_MS_MAX) { coast_ms = TURN_COAST_MS_MAX; }
+        }
     }
-    Motor_Move(0, 0, 0, 0);
 }
 
+/* Wait ms milliseconds while still reading the gyro, so rotation that happens
+ * meanwhile (the car sliding after the motors stop) is not lost. */
+void Car_Wait(uint32_t ms)
+{
+    uint32_t start = Timing_GetMilliseconds();
+    while (Timing_GetMilliseconds() - start < ms)
+    {
+        (void)Motion_Update();
+    }
+}

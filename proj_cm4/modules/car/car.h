@@ -22,6 +22,8 @@ void Motor_Move(int m1_speed, int m2_speed, int m3_speed, int m4_speed);//A func
 ///////////////////// MOTION HELPERS //////////////////////////////////////////
 // Blocking in-place turn using the gyro: positive = left, negative = right.
 void Car_TurnBy(int16_t delta_deg);
+// Wait while still reading the gyro (use instead of Cy_SysLib_Delay while moving).
+void Car_Wait(uint32_t ms);
 
 ///////////////////// SOUND API ///////////////////////////////////////////////
 void Sound_Init(void);

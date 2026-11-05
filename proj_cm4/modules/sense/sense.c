@@ -103,7 +103,13 @@ bool Sense_Init(void) {
         result.measured[i] = false;
     }
 
-    /* The head spends most of the run looking at the right wall, so that is where it starts. */
+    /* The tilt is commanded once and then left alone, because it is the same for every direction.
+     * Setting it together with the pan would mean another I2C write to the PCA9685 on every pass of
+     * the main loop during a step, for an angle that never changes. */
+    Head_SetTilt(CONFIG_HEAD_TILT_DEG);
+
+    /* The head spends most of the run looking at the right wall, so that is where it starts. The pan
+     * is commanded after the tilt, so the one settle timer covers both servos travelling. */
     Sense_PointHead(CONFIG_HEAD_PAN_RIGHT_DEG);
     return true;
 }
