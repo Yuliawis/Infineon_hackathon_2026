@@ -64,9 +64,20 @@
 #define MAZE_CELL_MM             (600u)    // cell size
 #define MAZE_ENTRY_MM            (300u)    // from the start position to the center of the first cell. CALIBRATE.
 #define MAZE_REDRAW_ANSI         (0)       // 1 = clear the terminal before each map (needs a terminal with ANSI)
+#define MAZE_PRINT_MAP           (0)       // 0 = do not print the maze map after each step
+
+// Debug: print the gyro heading and the ultrasonic distance periodically, also while the car turns,
+// drives or scans (it runs from the main loop and from the blocking loops in car.c via Car_SetIdleHook).
+#define PRINT_HEADING_DISTANCE   (1)       // 1 = print "heading ... deg, distance ... mm"
+#define HEADING_DISTANCE_PRINT_PERIOD_MS (250u)
 
 #if MAZE_EXPLORE
 static void mazeExploreStep(void);
+#endif
+#if PRINT_HEADING_DISTANCE
+static bool printMotionReady = false;
+static bool printDistanceReady = false;
+static void printHeadingDistance(void);
 #endif
 
 int main(void) {
@@ -113,6 +124,12 @@ int main(void) {
     // Keep the car still during gyro calibration
     bool motionReady = Motion_Init();
     DBG_PRINTF(motionReady ? "Motion ready\n" : "Motion init failed\n");
+
+#if PRINT_HEADING_DISTANCE
+    printMotionReady = motionReady;
+    printDistanceReady = distanceReady;
+    Car_SetIdleHook(printHeadingDistance);
+#endif
 
 #if MAZE_EXPLORE
     bool mazeReady = distanceReady && motionReady;
@@ -188,8 +205,34 @@ int main(void) {
             }
         }
 #endif  // MAZE_EXPLORE
+
+#if PRINT_HEADING_DISTANCE
+        printHeadingDistance();
+#endif
     }
 }
+
+#if PRINT_HEADING_DISTANCE
+// Runs inside the motor control loops too, so it must stay short: no Motion_Update() here
+// (it would steal gyro samples from the turn loop), no waiting.
+static void printHeadingDistance(void) {
+    static uint32_t lastPrintMs = 0;
+    uint32_t nowMs = Timing_GetMilliseconds();
+    if (nowMs - lastPrintMs < HEADING_DISTANCE_PRINT_PERIOD_MS) {
+        return;
+    }
+    lastPrintMs = nowMs;
+
+    uint16_t mm = 0;
+    bool hasDistance = printDistanceReady && Distance_GetMm(&mm);
+    // -1 means that there is no value (not ready, no echo, or out of range)
+    DBG_PRINTF("heading %d deg, distance %d mm\n",
+               printMotionReady ? (int) Motion_GetYaw() : -1, hasDistance ? (int) mm : -1);
+#if defined(BLE_LOG_ENABLED)
+    CM4_ForwardLogsToCM0();   // one non-blocking push; the blocking loops do not forward logs by themselves
+#endif
+}
+#endif
 
 #if MAZE_EXPLORE
 // The main loop forwards at most 254 bytes of log per iteration, and one iteration is a whole maze step,
@@ -212,13 +255,18 @@ static void setStatusLeds(uint8_t g, uint8_t r, uint8_t b) {
 
 // Print the whole map, with a step number and the chosen move.
 static void printMaze(uint32_t step, Maze_Dir next) {
+#if MAZE_PRINT_MAP
     static const char* const DIR_NAME[] = {"N", "E", "S", "W", "-"};
 #if MAZE_REDRAW_ANSI
     DBG_PRINTF("\033[2J\033[H");
 #endif
     DBG_PRINTF("\n=== Maze step %lu, next: %s ===\n", (unsigned long) step, DIR_NAME[next]);
     Maze_Print();
-    flushBleLog();
+#else
+    (void) step;
+    (void) next;
+#endif
+    flushBleLog();   // still push out the other logs of this step
 }
 
 // Drive forward. The head must look ahead and the distance filter must hold fresh front values:
@@ -226,12 +274,12 @@ static void printMaze(uint32_t step, Maze_Dir next) {
 static void driveForward(uint16_t mm, bool refresh) {
     if (Head_GetPan() != 0) {
         Head_Look(0, 0);
-        Cy_SysLib_Delay(MAZE_HEAD_SETTLE_MS);
+        Car_Wait(MAZE_HEAD_SETTLE_MS);   // Car_Wait keeps the gyro and the debug print running
         refresh = true;
     }
     if (refresh) {
         Distance_Start();
-        Cy_SysLib_Delay(MAZE_MEASURE_MS);
+        Car_Wait(MAZE_MEASURE_MS);
     }
     Car_DriveForward(mm);
 }
@@ -249,7 +297,7 @@ static void mazeExploreStep(void) {
     if (!started) {
         started = true;
         DBG_PRINTF("Maze: start in %u ms\n", (unsigned) MAZE_START_DELAY_MS);
-        Cy_SysLib_Delay(MAZE_START_DELAY_MS);
+        Car_Wait(MAZE_START_DELAY_MS);
         Car_ResetHeading();    // the car stands aligned to the walls: this is heading 0
         driveForward(MAZE_ENTRY_MM, true);    // to the center of the first cell
         Maze_Init();

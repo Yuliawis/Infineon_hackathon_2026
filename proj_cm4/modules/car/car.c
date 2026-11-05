@@ -175,6 +175,23 @@ int16_t Car_GetHeading(void)
     return commanded_yaw;
 }
 
+///////////////////// IDLE HOOK ///////////////////////////////////////////////
+// Called on every pass of the blocking loops below (turn, drive, wait), e.g. for periodic debug prints.
+static void (*idle_hook)(void) = NULL;
+
+void Car_SetIdleHook(void (*hook)(void))
+{
+    idle_hook = hook;
+}
+
+static inline void runIdleHook(void)
+{
+    if (idle_hook != NULL)
+    {
+        idle_hook();
+    }
+}
+
 /* Turn the car in place by delta_deg degrees (positive = left, negative = right).
  * The turn is relative to the commanded heading, not to the current yaw, so errors do not accumulate.
  * Blocking: returns when the target heading is reached or after TURN_TIMEOUT_MS.
@@ -201,6 +218,7 @@ void Car_TurnBy(int16_t delta_deg)
         uint32_t start = Timing_GetMilliseconds();
         while (abs(Motion_GetYawError(target)) > TURN_TOLERANCE_DEG)
         {
+            runIdleHook();
             if (Timing_GetMilliseconds() - start > TURN_TIMEOUT_MS)
             {
                 break;   // safety: the IMU is stuck or the car does not turn
@@ -262,6 +280,7 @@ void Car_Wait(uint32_t ms)
     while (Timing_GetMilliseconds() - start < ms)
     {
         (void)Motion_Update();
+        runIdleHook();
     }
 }
 
@@ -281,6 +300,7 @@ void Car_DriveForward(uint16_t mm)
 
     while (1)
     {
+        runIdleHook();
         uint32_t elapsed = Timing_GetMilliseconds() - start;
         if (elapsed > DRIVE_TIMEOUT_MS || (!use_sensor && elapsed >= duration_ms))
         {
