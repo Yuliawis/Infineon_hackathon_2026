@@ -28,10 +28,19 @@ void Debug_Printf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 #define DBG_PRINTF(...) ((void) 0)
 #endif
 
+// Same, but only to the debug UART, never over BLE. For bulky output that would flood the BLE log.
+void Debug_PrintfLocal(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+#if DEBUG_UART_OWNER
+#define DBG_PRINTF_LOCAL(...) Debug_PrintfLocal(__VA_ARGS__)
+#else
+#define DBG_PRINTF_LOCAL(...) ((void) 0)
+#endif
+
 #if defined(BLE_LOG_ENABLED)
 // Log text waiting to be forwarded to CM0+ (which sends it over BLE). ISR-safe.
 size_t Debug_BleLogPeek(uint8_t* out, size_t maxLen);
 void Debug_BleLogDrop(size_t len);
+size_t Debug_BleLogUsed(void);
 #endif
 
 #endif /* DEBUG_UART_H */

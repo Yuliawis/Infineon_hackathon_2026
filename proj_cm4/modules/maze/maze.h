@@ -15,6 +15,11 @@ extern "C" {
 
 #define MAZE_MAX_MARKS (2u)
 
+// Map changes are logged as text lines (they travel over the BLE log, see tools/maze_viewer.py):
+//   @R x y         map reset, start cell
+//   @C x y edges   cell scanned; edges = 2 bits per side N,E,S,W (0 unknown, 1 wall, 2 open)
+//   @M x y dir m   car left cell (x,y) towards dir; the passage now has m marks
+
 // Wall if closer than this (mm). Calibrate on the field.
 #define MAZE_FRONT_WALL_MM (400u)
 #define MAZE_SIDE_WALL_MM  (450u)

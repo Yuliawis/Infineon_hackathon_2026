@@ -129,6 +129,8 @@ void Maze_Init(void)
 
   setEdge(pos_x, pos_y, MAZE_SOUTH, EDGE_OPEN);
   setMarks(pos_x, pos_y, MAZE_SOUTH, MAZE_MAX_MARKS);
+
+  DBG_PRINTF("@R %u %u\n", (unsigned)pos_x, (unsigned)pos_y);
 }
 
 void Maze_SetWalls(bool wall_front, bool wall_left, bool wall_right)
@@ -142,6 +144,8 @@ void Maze_SetWalls(bool wall_front, bool wall_left, bool wall_right)
   max_x = (pos_x > max_x) ? pos_x : max_x;
   min_y = (pos_y < min_y) ? pos_y : min_y;
   max_y = (pos_y > max_y) ? pos_y : max_y;
+
+  DBG_PRINTF("@C %u %u %u\n", (unsigned)pos_x, (unsigned)pos_y, (unsigned)maze[pos_y][pos_x].edges);
 }
 
 static bool wallAt(int8_t pan_deg, uint16_t threshold_mm)
@@ -236,8 +240,10 @@ bool Maze_Advance(Maze_Dir dir)
   uint8_t marks = getMarks(pos_x, pos_y, dir);
   if (marks < MAZE_MAX_MARKS)
   {
-    setMarks(pos_x, pos_y, dir, (uint8_t)(marks + 1u));
+    marks = (uint8_t)(marks + 1u);
+    setMarks(pos_x, pos_y, dir, marks);
   }
+  DBG_PRINTF("@M %u %u %u %u\n", (unsigned)pos_x, (unsigned)pos_y, (unsigned)dir, (unsigned)marks);
   arrived_in_visited_cell = maze[ny][nx].visited != 0;
   pos_x = nx;
   pos_y = ny;
@@ -314,7 +320,7 @@ static void printHorizontalLine(uint8_t y, Maze_Dir dir)
     *p++ = '+';
   }
   *p = '\0';
-  DBG_PRINTF("%s\n", line);
+  DBG_PRINTF_LOCAL("%s\n", line);
 }
 
 static void printCellLine(uint8_t y)
@@ -342,7 +348,7 @@ static void printCellLine(uint8_t y)
     *p++ = verticalEdgeChar(x, y, MAZE_EAST);
   }
   *p = '\0';
-  DBG_PRINTF("%s\n", line);
+  DBG_PRINTF_LOCAL("%s\n", line);
 }
 
 void Maze_Print(void)
@@ -353,5 +359,5 @@ void Maze_Print(void)
     printCellLine(y);
   }
   printHorizontalLine(max_y, MAZE_SOUTH);
-  DBG_PRINTF("pos (%u,%u) heading %d\n", (unsigned)pos_x, (unsigned)pos_y, (int)heading);
+  DBG_PRINTF_LOCAL("pos (%u,%u) heading %d\n", (unsigned)pos_x, (unsigned)pos_y, (int)heading);
 }

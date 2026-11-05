@@ -1,4 +1,5 @@
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include "debug_uart.h"
 #include "cybsp.h"
@@ -18,27 +19,40 @@ cy_rslt_t Debug_Init(void) {
     return result;
 }
 
-void Debug_Printf(const char* fmt, ...) {
+static void debugVprintf(bool toBle, const char* fmt, va_list args) {
     char buf[DEBUG_LINE_MAX];
-    va_list args;
 
-    va_start(args, fmt);
     int n = vsnprintf(buf, sizeof(buf), fmt, args);
-    va_end(args);
-
     if (n <= 0) {
         return;
     }
     // vsnprintf returns the untruncated length; clamp to what actually fit
     size_t len = ((size_t) n < sizeof(buf)) ? (size_t) n : sizeof(buf) - 1u;
     (void) len;  // unused when neither output is enabled
+    (void) toBle;
 
 #if DEBUG_UART_OWNER
     fwrite(buf, 1u, len, stdout);
 #endif
 #if defined(BLE_LOG_ENABLED)
-    (void) LogFifo_Push(&bleLogFifo, (const uint8_t*) buf, len);
+    if (toBle) {
+        (void) LogFifo_Push(&bleLogFifo, (const uint8_t*) buf, len);
+    }
 #endif
+}
+
+void Debug_Printf(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    debugVprintf(true, fmt, args);
+    va_end(args);
+}
+
+void Debug_PrintfLocal(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    debugVprintf(false, fmt, args);
+    va_end(args);
 }
 
 #if defined(BLE_LOG_ENABLED)

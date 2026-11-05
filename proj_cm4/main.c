@@ -67,6 +67,7 @@
 
 #if MAZE_EXPLORE
 static void mazeExploreStep(void);
+static void flushBleLog(void);
 #endif
 
 int main(void) {
@@ -130,6 +131,7 @@ int main(void) {
 
 #if MAZE_EXPLORE
         // One step is blocking (scan, turn, drive one cell), so the IPC messages above wait for it
+        flushBleLog();
         if (mazeReady) {
             mazeExploreStep();
         }
@@ -214,9 +216,9 @@ static void setStatusLeds(uint8_t g, uint8_t r, uint8_t b) {
 static void printMaze(uint32_t step, Maze_Dir next) {
     static const char* const DIR_NAME[] = {"N", "E", "S", "W", "-"};
 #if MAZE_REDRAW_ANSI
-    DBG_PRINTF("\033[2J\033[H");
+    DBG_PRINTF_LOCAL("\033[2J\033[H");
 #endif
-    DBG_PRINTF("\n=== Maze step %lu, next: %s ===\n", (unsigned long) step, DIR_NAME[next]);
+    DBG_PRINTF_LOCAL("\n=== Maze step %lu, next: %s ===\n", (unsigned long) step, DIR_NAME[next]);
     Maze_Print();
     flushBleLog();
 }
@@ -256,6 +258,7 @@ static void mazeExploreStep(void) {
 
     setStatusLeds(0, 0, 60);    // blue: scanning
     Maze_ScanCell();
+    flushBleLog();  // the new cell goes to the laptop before the car starts moving
     Maze_Dir next = Maze_ChooseNext();
     printMaze(step++, next);
 
@@ -273,5 +276,6 @@ static void mazeExploreStep(void) {
     }
     driveForward(MAZE_CELL_MM, turn != 0);
     (void) Maze_Advance(next);
+    flushBleLog();
 }
 #endif  // MAZE_EXPLORE
