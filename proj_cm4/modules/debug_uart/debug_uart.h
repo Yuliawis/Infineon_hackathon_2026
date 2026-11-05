@@ -30,8 +30,10 @@ void Debug_Printf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 
 #if defined(BLE_LOG_ENABLED)
 // Log text waiting to be forwarded to CM0+ (which sends it over BLE). ISR-safe.
+void Debug_BleLogPush(const uint8_t* data, size_t len);
 size_t Debug_BleLogPeek(uint8_t* out, size_t maxLen);
 void Debug_BleLogDrop(size_t len);
+size_t Debug_BleLogUsed(void);
 #endif
 
 #endif /* DEBUG_UART_H */
