@@ -1,0 +1,31 @@
+# Normalize line endings: LF in the repository, native on checkout
+* text=auto
+
+# Files consumed by make / bash (modus-shell on Windows is Cygwin) must stay LF
+Makefile        text eol=lf
+*.mk            text eol=lf
+*.sh            text eol=lf
+*.tcl           text eol=lf
+*.ld            text eol=lf
+
+# Source and ModusToolbox config files: keep LF so diffs are identical on both OSes
+*.c             text eol=lf
+*.h             text eol=lf
+*.S             text eol=lf
+*.s             text eol=lf
+*.modus         text eol=lf
+*.cybt          text eol=lf
+*.json          text eol=lf
+*.mtb           text eol=lf
+*.mtbx          text eol=lf
+
+# Windows-only scripts
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# Binary files
+*.pdf           binary
+*.png           binary
+*.jpg           binary
+*.JPG           binary
+*.spl7          binary

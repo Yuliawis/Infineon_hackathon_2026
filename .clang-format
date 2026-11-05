@@ -1,0 +1,50 @@
+---
+# Docs: https://clang.llvm.org/docs/ClangFormatStyleOptions.html
+BasedOnStyle: LLVM # LLVM, Google, Chromium, Mozilla, WebKit, Microsoft, GNU
+
+# Indentation
+IndentWidth: 4 # spaces per level
+TabWidth: 4
+UseTab: Never # Never, Always, ForIndentation, ForContinuationAndIndentation
+ContinuationIndentWidth: 8 # indent of wrapped lines
+IndentCaseLabels: true # indent `case` inside `switch`
+IndentPPDirectives: None # None, AfterHash, BeforeHash
+
+# Line length
+ColumnLimit: 120 # 0 = no limit; common: 80, 100, 120
+
+# Braces
+BreakBeforeBraces: Attach # Attach (K&R), Linux, Allman, GNU, Stroustrup, WebKit
+
+# Short statements on one line
+AllowShortFunctionsOnASingleLine: InlineOnly # None, InlineOnly, Empty, Inline, All
+AllowShortIfStatementsOnASingleLine: WithoutElse # Never, WithoutElse, OnlyFirstIf, AllIfsAndElse
+AllowShortLoopsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Always # Never, Empty, Always
+AllowShortCaseLabelsOnASingleLine: true
+
+# Spacing
+PointerAlignment: Left # Left (char* p), Right (char *p), Middle
+SpaceAfterCStyleCast: true # (int) x vs (int)x
+SpaceBeforeParens: ControlStatements # Never, ControlStatements, Always, NonEmptyParentheses
+SpacesInParentheses: false # ( x )
+SpacesBeforeTrailingComments: 2
+MaxEmptyLinesToKeep: 2
+
+# Wrapping and alignment
+AlignAfterOpenBracket: Align # Align, DontAlign, AlwaysBreak, BlockIndent
+AlignConsecutiveMacros: Consecutive # None, Consecutive, AcrossEmptyLines, AcrossComments
+# AlignConsecutiveAssignments: Consecutive # align `=` in a block
+# AlignConsecutiveDeclarations: Consecutive # align variable names
+AlignTrailingComments: true
+AlignEscapedNewlines: Left # Left, Right, DontAlign (macro backslashes)
+BinPackArguments: true # false = all on one line or one per line
+BinPackParameters: true
+BreakBeforeBinaryOperators: None # None, NonAssignment, All
+AlwaysBreakAfterReturnType: None # None, All, TopLevel, AllDefinitions, TopLevelDefinitions
+
+# Includes
+SortIncludes: Never # Never, CaseSensitive, CaseInsensitive; Never keeps manual order
+
+# Comments
+CommentPragmas: '^ USER CODE' # don't reflow CubeMX markers

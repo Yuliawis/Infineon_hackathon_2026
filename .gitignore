@@ -148,8 +148,41 @@ ehthumbs.db
 ehthumbs_vista.db
 [Dd]esktop.ini
 
-# Clangd service files
-proj_cm0p/.cache/*
-proj_cm4/.cache/*
+# Clangd service files (index cache, generated compile database)
+.cache/
+compile_commands.json
 
 .ninja_log
+
+# ModusToolbox AI / VS Code extension state (absolute paths, PIDs, ports - machine-specific)
+.modustoolbox/
+
+# Shared library folder, in case someone configures it inside the repo
+mtb_shared/
+
+# Windows incidental files
+$RECYCLE.BIN/
+*.lnk
+*.stackdump
+
+# Linux incidental files
+.directory
+.Trash-*
+.nfs*
+.fuse_hidden*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+.venv/
+venv/
+env/
+.env
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
