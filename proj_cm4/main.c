@@ -138,7 +138,7 @@ int main(void)
     DBG_PRINTF("Head test done\n");
 
 
-    Music_FurElise();
+    // Music_FurElise();
 
     // Motor_Move(2000, 2000, 2000, 2000);     //go forward
     // CyDelay(5000);
