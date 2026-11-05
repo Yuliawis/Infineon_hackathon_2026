@@ -79,6 +79,44 @@ cy_en_ble_api_result_t sendDataNotificationNUS(uint8_t* data, uint16_t len) {
     return err;
 }
 
+#if defined(BLE_LOG_ENABLED)
+// Send buffered log text (from both cores) as NUS TX notifications, one chunk per call.
+// Must not log anything itself: every log line would cause another notification.
+static void drainBleLog(void) {
+    // Static: keep the data valid after SendNotification returns
+    static uint8_t chunk[64];
+
+    if (Debug_BleLogUsed() == 0u) {
+        return;
+    }
+    if (!isSubscribedToNtf) {
+        // Nobody is listening: discard instead of letting stale logs pile up
+        Debug_BleLogDrop(Debug_BleLogUsed());
+        return;
+    }
+    if (Cy_BLE_GATT_GetBusyStatus(appConnHandle.attId) != CY_BLE_STACK_STATE_FREE) {
+        // Stack TX buffers are full; try again on a later loop iteration
+        return;
+    }
+
+    // Notification payload is MTU minus 3 bytes of ATT header
+    size_t maxLen = (size_t) mtu_val - 3u;
+    if (maxLen > sizeof(chunk)) {
+        maxLen = sizeof(chunk);
+    }
+
+    size_t n = Debug_BleLogPeek(chunk, maxLen);
+    cy_stc_ble_gatt_handle_value_pair_t pair = {
+            .attrHandle = CY_BLE_NUS_UART_NUS_TX_CHAR_HANDLE,
+            .value = {.val = chunk, .len = (uint16_t) n, .actualLen = (uint16_t) n},
+    };
+    // Remove from the FIFO only after the stack accepted it, so nothing is lost while busy
+    if (Cy_BLE_GATTS_SendNotification(&appConnHandle, &pair) == CY_BLE_SUCCESS) {
+        Debug_BleLogDrop(n);
+    }
+}
+#endif
+
 static void parseIncomingBLECommand(uint8_t* val, uint16 len) {
     enum blePayloadTypes payloadType = val[0];
 
@@ -263,7 +301,11 @@ static void AppCallBack(uint32_t event, void* eventParam) {
             }
             break;
 
-        default: DBG_PRINTF("Other event: 0x%X \r\n", event); break;
+        // Fires whenever the TX buffers fill up or drain. Not logged: with BLE logging,
+        // that log line would itself be sent and keep the stack busy.
+        case CY_BLE_EVT_STACK_BUSY_STATUS: break;
+
+        default: DBG_PRINTF("Other event: 0x%lX \r\n", (unsigned long) event); break;
     }
 }
 
@@ -303,6 +345,11 @@ void BLE_NUS_Init(void) {
         if (CM0_isDataAvailableFromCM4()) {
             processIncomingIPCMessage(CM0_GetCM4Message());
         }
+
+#if defined(BLE_LOG_ENABLED)
+        // Mirror debug logs to the connected Central
+        drainBleLog();
+#endif
 
         // Mostly you don't want more code here!
     }

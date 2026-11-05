@@ -70,6 +70,44 @@ ipc_msg_t ipcMsgForCM0 = {/* IPC structure to be sent to CM0 */
 static void processIncomingIPCMessage(ipc_msg_t* msg);
 static void processCM4Command(ipc_msg_t* msg);
 
+#if defined(BLE_LOG_ENABLED)
+// Separate from ipcMsgForCM0 so a log transfer never clobbers a command reply being built.
+static ipc_msg_t ipcLogForCM0 = {.clientId = IPC_CM4_TO_CM0_CLIENT_ID,
+                                 .userCode = IPC_USR_CODE_CMD,
+                                 .intrMask = CY_SYS_CYPIPE_INTR_MASK,
+                                 .buffer = {},
+                                 .len = 0};
+
+// Hand buffered CM4 log text to CM0+, which sends it over BLE. Must not log anything itself.
+static void forwardLogsToCM0(void) {
+    // len is uint8_t and buffer[0] holds the command, so at most 254 bytes of text per message
+    const size_t maxText = 254u;
+
+    if (!CM4_IsCM0Ready()) {
+        return;
+    }
+    size_t n = Debug_BleLogPeek(&ipcLogForCM0.buffer[1], maxText);
+    if (n == 0u) {
+        return;
+    }
+    // If more is waiting, cut at the last full line so CM0+ logs don't land mid-line
+    if (n == maxText) {
+        size_t cut = n;
+        while ((cut > 0u) && (ipcLogForCM0.buffer[cut] != '\n')) {
+            cut--;
+        }
+        if (cut > 0u) {
+            n = cut;
+        }
+    }
+    ipcLogForCM0.buffer[0] = (uint8_t) CM0_SHARED_LOG;
+    ipcLogForCM0.len = (uint8_t) (n + 1u);
+    if (CM4_SendCM0Message(&ipcLogForCM0)) {
+        Debug_BleLogDrop(n);
+    }
+}
+#endif
+
 int main(void) {
     cy_rslt_t result;
 
@@ -149,6 +187,10 @@ int main(void) {
         if (CM4_isDataAvailableFromCM0()) {
             processIncomingIPCMessage(CM4_GetCM0Message());
         }
+
+#if defined(BLE_LOG_ENABLED)
+        forwardLogsToCM0();
+#endif
 
         if (distanceReady) {
             static uint32_t lastDistancePrintMs = 0;

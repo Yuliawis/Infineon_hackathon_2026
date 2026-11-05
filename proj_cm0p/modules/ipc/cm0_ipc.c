@@ -3,6 +3,7 @@
 #include "cy_device.h"
 #include "cy_ipc_pipe.h"
 #include "debug_uart.h"
+#include "cm0_cm4_shared_cmd.h"
 
 static volatile bool isCM4Ready = true;
 static volatile bool isDataAvailableFromCM4 = false;
@@ -16,6 +17,16 @@ void CM0_MessageCallback(uint32_t* msg) {
     if (msg != NULL) {
         /* Cast the message received to the IPC structure */
         ipcMsgFromCM4 = (ipc_msg_t*) msg;
+
+#if defined(BLE_LOG_ENABLED)
+        // Log text goes straight into the BLE log FIFO, so frequent logs never
+        // overwrite a command waiting in the single-message slot below.
+        if ((ipcMsgFromCM4->userCode == IPC_USR_CODE_CMD) && (ipcMsgFromCM4->len > 1u) &&
+            (ipcMsgFromCM4->buffer[0] == (uint8_t) CM0_SHARED_LOG)) {
+            Debug_BleLogPush(&ipcMsgFromCM4->buffer[1], ipcMsgFromCM4->len - 1u);
+            return;
+        }
+#endif
 
         // Store the message locally
         memcpy((void*) &ipcMsgFromCM4_Local, (void*) ipcMsgFromCM4, sizeof(ipc_msg_t));
