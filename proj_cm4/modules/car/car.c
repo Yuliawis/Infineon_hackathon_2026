@@ -49,7 +49,7 @@
 #define DRIVE_SETTLE_MS          (100u)   // wait after stopping, while the car slides
 #define DRIVE_MEASURE_MS         (170u)   // fill the distance filter while standing (3 measurements, 50 ms each)
 #define DRIVE_CORRECT_TIMEOUT_MS (1500u)  // max time of one correction pass
-#define DRIVE_CORRECT_NEAR_MM    (400)    // correct only when stopping this close to the wall ahead (last cell before it)
+#define DRIVE_CORRECT_NEAR_MM    (400)  // correct only when stopping this close to the wall ahead (last cell before it)
 
 
 /* 8MHz IMO clock with 8000000 reload value to generate 1s interrupt */
