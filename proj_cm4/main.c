@@ -55,23 +55,17 @@
 #include "cm4_cmd.h"
 
 
-#define MOTION_PRINT_PERIOD_MS   (500u)
-#define DISTANCE_PRINT_PERIOD_MS (500u)
-
 #define PRINT_HEADING_DISTANCE   (1)       // 1 = print "T hdg=<deg> dist=<mm>"
 #define HEADING_DISTANCE_PRINT_PERIOD_MS (250u)
 
 // Maze exploration (Tremax). The car builds the map with the ultrasonic sensor and prints it to the UART.
-#define MAZE_EXPLORE             (1)       // 0 = old behavior (periodic distance/yaw prints only)
 #define MAZE_START_DELAY_MS      (3000u)   // time to put the car down before it starts moving
 #define MAZE_CELL_MM             (600u)    // cell size
 #define MAZE_ENTRY_MM            (300u)    // from the start position to the center of the first cell. CALIBRATE.
 #define MAZE_REDRAW_ANSI         (0)       // 1 = clear the terminal before each map (needs a terminal with ANSI)
 #define MAZE_PRINT_MAP           (0)       // 0 = do not print the maze map after each step
 
-#if MAZE_EXPLORE
 static void mazeExploreStep(void);
-#endif
 #if PRINT_HEADING_DISTANCE
 static bool printMotionReady = false;
 static bool printDistanceReady = false;
@@ -129,12 +123,10 @@ int main(void) {
     Car_SetIdleHook(printHeadingDistance);
 #endif
 
-#if MAZE_EXPLORE
     bool mazeReady = distanceReady && motionReady;
     if (!mazeReady) {
         DBG_PRINTF("Maze: distance or motion is not ready, exploration is off\n");
     }
-#endif
 
     // Main loop. Your code goes here.
     for (;;) {
@@ -148,62 +140,10 @@ int main(void) {
         CM4_ForwardLogsToCM0();
 #endif
 
-#if MAZE_EXPLORE
         // One step is blocking (scan, turn, drive one cell), so the IPC messages above wait for it
         if (mazeReady) {
             mazeExploreStep();
         }
-#else
-        if (distanceReady) {
-            static uint32_t lastDistancePrintMs = 0;
-            uint32_t nowMs = Timing_GetMilliseconds();
-
-            (void) Distance_Update();  // does nothing in the automatic mode
-            if (nowMs - lastDistancePrintMs >= DISTANCE_PRINT_PERIOD_MS) {
-                uint16_t filteredMm;
-                bool hasDistance = Distance_GetMm(&filteredMm);
-                lastDistancePrintMs = nowMs;
-                // -1 means that there is no value (no echo, or the distance is out of range)
-                DBG_PRINTF("T dist=%d\n", hasDistance ? (int) filteredMm : -1);
-
-                // LED + Distance test: red at 20 mm or closer, fading to green at 200 mm or farther. Tune it as you prefer.
-                if (hasDistance) {
-                    const uint16_t nearMm = 20;
-                    const uint16_t farMm = 500;
-                    const uint8_t maxLevel = 100;  // brightness cap (out of 255)
-
-                    // Clamp the distance into the [nearMm, farMm] range
-                    uint16_t mm = filteredMm;
-                    if (mm < nearMm) {
-                        mm = nearMm;
-                    }
-
-                    if (mm > farMm) {
-                        mm = farMm;
-                    }
-
-                    // Linear blend: green grows with distance, red takes the rest
-                    uint8_t green = (uint8_t) ((uint32_t) (mm - nearMm) * maxLevel / (farMm - nearMm));
-                    uint8_t red = maxLevel - green;
-
-                    Leds_FillSolidColor(green, red, 0);  // argument order is G, R, B
-                } else {
-                    Leds_FillSolidColor(0, 100, 100);  // no valid reading: purple (red + blue)
-                }
-                Leds_Update();
-            }
-        }
-
-
-        if (motionReady && Motion_Update()) {
-            static uint32_t lastPrintMs = 0;
-            uint32_t nowMs = Timing_GetMilliseconds();
-            if (nowMs - lastPrintMs >= MOTION_PRINT_PERIOD_MS) {
-                lastPrintMs = nowMs;
-                DBG_PRINTF("T yaw=%d rate=%d\n", Motion_GetYaw(), Motion_GetYawRate());
-            }
-        }
-#endif  // MAZE_EXPLORE
 
 #if PRINT_HEADING_DISTANCE
         printHeadingDistance();
@@ -233,7 +173,6 @@ static void printHeadingDistance(void) {
 }
 #endif
 
-#if MAZE_EXPLORE
 // The main loop forwards at most 254 bytes of log per iteration, and one iteration is a whole maze step,
 // so push the map out right away.
 static void flushBleLog(void) {
@@ -322,4 +261,3 @@ static void mazeExploreStep(void) {
     driveForward(MAZE_CELL_MM, turn != 0);
     (void) Maze_Advance(next);
 }
-#endif  // MAZE_EXPLORE
