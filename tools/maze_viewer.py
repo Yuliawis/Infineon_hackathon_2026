@@ -36,7 +36,7 @@ DY = (-1, 0, 1, 0)  # y grows to the south (like the firmware map)
 
 EDGE_UNKNOWN, EDGE_WALL, EDGE_OPEN = range(3)
 MAX_MARKS = 2
-TIMESTAMP_RE = re.compile(r"^\[\d+\.\d{3}\] ")
+TIMESTAMP_RE = re.compile(r"^\[\d+(?:\.\d+)?\] ")
 
 COLOR_VISITED = "#dcedc8"
 COLOR_FRONTIER = "#fff3c4"  # seen as open from a neighbour, not scanned yet
@@ -54,7 +54,18 @@ class MazeMap:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.version = 0
+        self.link = "starting"  # BLE state shown in the title: scanning / connected / disconnected ...
+        self.connected = False
+        self.lines_rx = 0  # log lines received on the current connection (any kind)
         self._clear()
+
+    def set_link(self, text: str, connected: bool) -> None:
+        with self.lock:
+            self.link = text
+            self.connected = connected
+            if connected:
+                self.lines_rx = 0
+            self.version += 1
 
     def _clear(self) -> None:
         self.edges: dict[tuple[int, int], list[int]] = {}
@@ -75,6 +86,10 @@ class MazeMap:
 
     def feed(self, line: str) -> bool:
         """Apply one log line. Returns True if it was a map event."""
+        with self.lock:
+            self.lines_rx += 1
+            if self.lines_rx == 1:
+                self.version += 1  # redraw once: "connected, no data" -> "receiving logs"
         line = TIMESTAMP_RE.sub("", line, count=1)  # firmware may prefix "[s.mmm] " (DEBUG_TIMESTAMP)
         if not line.startswith("@"):
             return False
@@ -93,6 +108,7 @@ class MazeMap:
                     for d in range(4):
                         self._set_pair(self.edges, x, y, d, (edges >> (2 * d)) & 3)
                     self.visited.add((x, y))
+                    self.pos = (x, y)  # a cell is scanned while the car stands in it
                 elif kind == "M" and len(nums) == 4:
                     x, y, d, m = nums
                     self._set_pair(self.marks, x, y, d, m)
@@ -128,20 +144,28 @@ def draw(ax, maze: MazeMap) -> None:
         marks = {k: list(v) for k, v in maze.marks.items()}
         visited = set(maze.visited)
         start, pos, heading, moves = maze.start, maze.pos, maze.heading, maze.moves
+        link, connected, lines_rx = maze.link, maze.connected, maze.lines_rx
 
     ax.set_aspect("equal")
     ax.set_xticks([])
     ax.set_yticks([])
-    if start is None:
-        ax.set_title("waiting for the car ...")
+
+    # The run start (@R) can be missed (viewer connected late, BLE log overflow): then draw what we have
+    outside = (start[0], start[1] + 1) if start else None  # the cell behind the entrance: not part of the maze
+    # visited cells, plus the cells a known open passage leads to (not the ones behind a wall)
+    seen = {c for c, e in edges.items() if EDGE_OPEN in e}
+    cells = (seen | visited | ({start} if start else set()) | ({pos} if pos else set())) - {outside}
+    if not cells:
+        if not connected:
+            msg = f"{link} ..."
+        elif lines_rx == 0:
+            msg = "connected, no data from the car yet ..."
+        else:
+            msg = "connected, waiting for the maze run to start ..."
+        ax.set_title(msg)
         ax.set_xlim(-1, 1)
         ax.set_ylim(1, -1)
         return
-
-    outside = (start[0], start[1] + 1)  # the cell behind the entrance: not part of the maze
-    # visited cells, plus the cells a known open passage leads to (not the ones behind a wall)
-    seen = {c for c, e in edges.items() if EDGE_OPEN in e}
-    cells = (seen | visited | {start}) - {outside}
     xs = [c[0] for c in cells]
     ys = [c[1] for c in cells]
     x0, x1 = min(xs) - 1.5, max(xs) + 1.5
@@ -161,7 +185,8 @@ def draw(ax, maze: MazeMap) -> None:
         else:
             color = COLOR_FRONTIER
         ax.add_patch(Rectangle((x - 0.5, y - 0.5), 1, 1, facecolor=color, edgecolor="none", zorder=1))
-    ax.text(start[0], start[1], "S", ha="center", va="center", fontsize=14, color="#555", zorder=2)
+    if start:
+        ax.text(start[0], start[1], "S", ha="center", va="center", fontsize=14, color="#555", zorder=2)
 
     # passages: Tremaux marks, drawn between the two cell centres
     for (x, y), cell_edges in edges.items():
@@ -172,7 +197,8 @@ def draw(ax, maze: MazeMap) -> None:
             color, width = MARK_STYLE[m]
             ax.plot([x, x + DX[d]], [y, y + DY[d]], color=color, linewidth=width, solid_capstyle="round", zorder=3)
     # the entrance behind the start cell: a short stub
-    ax.plot([start[0], start[0]], [start[1], start[1] + 0.5], color=MARK_STYLE[MAX_MARKS][0], linewidth=2, zorder=3)
+    if start:
+        ax.plot([start[0], start[0]], [start[1], start[1] + 0.5], color=MARK_STYLE[MAX_MARKS][0], linewidth=2, zorder=3)
 
     # walls and unknown sides, on the cell borders
     sides = {  # direction -> (x offset, y offset) of the two border endpoints
@@ -207,7 +233,13 @@ def draw(ax, maze: MazeMap) -> None:
         Rectangle((0, 0), 1, 1, facecolor=COLOR_CURRENT, label="robot"),
     ]
     ax.legend(handles=legend, loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=9, frameon=False)
-    ax.set_title(f"cell ({pos[0]}, {pos[1]})   heading {DIR_NAME[heading]}   moves {moves}   visited {len(visited)}")
+    where = f"cell ({pos[0]}, {pos[1]})   heading {DIR_NAME[heading]}" if pos else "position unknown"
+    title = f"{where}   moves {moves}   visited {len(visited)}"
+    if start is None:
+        title += "   (run start missed)"
+    if not connected:
+        title += f"   [{link}]"
+    ax.set_title(title)
 
 
 # ----------------------------------------------------------------------------- input sources
@@ -230,6 +262,7 @@ async def ble_session(device, maze: MazeMap, show_log: bool) -> None:
 
     async with BleakClient(device, disconnected_callback=lambda _c: disconnected.set()) as client:
         status(f"connected to {device.name or device.address}")
+        maze.set_link("connected", True)  # before start_notify, so no received line is missed by the counter
         await client.start_notify(NUS_TX_UUID, lambda _c, data: splitter.feed(bytes(data)))
         await disconnected.wait()
 
@@ -237,15 +270,19 @@ async def ble_session(device, maze: MazeMap, show_log: bool) -> None:
 async def ble_forever(args, maze: MazeMap) -> None:
     while True:
         status(f"scanning for {args.address or args.name} ...")
+        maze.set_link(f"scanning for {args.address or args.name}", False)
         try:
             device = await find_car(args)
             if device is None:
                 status("car not found, retrying")
                 continue
+            maze.set_link(f"connecting to {device.name or device.address}", False)
             await ble_session(device, maze, args.log)
             status("disconnected, reconnecting")
+            maze.set_link("disconnected, reconnecting", False)
         except Exception as exc:  # range, interference or the car resetting: just try again
             status(f"BLE error: {exc}, retrying")
+            maze.set_link("BLE error, retrying", False)
         await asyncio.sleep(1.0)
 
 
@@ -264,6 +301,7 @@ def main() -> None:
 
     maze = MazeMap()
     if args.replay:
+        maze.set_link(f"replay of {args.replay}", True)
         replay(maze, args.replay, args.log)
     else:
         threading.Thread(target=lambda: asyncio.run(ble_forever(args, maze)), daemon=True).start()
