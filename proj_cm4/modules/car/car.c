@@ -40,6 +40,7 @@
 #define DRIVE_SENSOR_MARGIN_MM (100u)   // keep at least this distance to the wall ahead
 #define DRIVE_SENSOR_OFFSET_MM (70)     // from the car center forward to the distance sensor. CALIBRATE on the car.
 #define DRIVE_STOP_LEAD_MM     (50u)    // stop this much early: sensor lag + coasting after stop. CALIBRATE on the car.
+#define DRIVE_SENSOR_TIME_PCT  (150u)   // sensor drive also ends after this % of its expected time (echo lost)
 
 
 /* 8MHz IMO clock with 8000000 reload value to generate 1s interrupt */
@@ -301,20 +302,28 @@ static int32_t driveStopDistance(uint16_t front_mm, uint16_t mm, uint16_t grid_m
  * If a wall is seen ahead (head must look forward, distance filter must be fresh), the distance to it is the
  * reference: see driveStopDistance(), the car stops DRIVE_STOP_LEAD_MM early to cover sensor lag and coasting.
  * Otherwise the time is used (DRIVE_MM_PER_SECOND).
+ * With the sensor the drive still ends after DRIVE_SENSOR_TIME_PCT of the expected time, so a lost echo or a
+ * wrong (too far) reading can't make the car drive on until DRIVE_TIMEOUT_MS.
  * Blocking. Needs Motion_Init(), Distance_Start() and Timing_Init() before. */
 void Car_DriveForward(uint16_t mm, uint16_t grid_mm) {
     uint16_t front_mm = 0;
     int32_t stop_at = Distance_GetMm(&front_mm) ? driveStopDistance(front_mm, mm, grid_mm) : -1;
     bool use_sensor = stop_at >= 0;
     uint16_t stop_mm = use_sensor ? (uint16_t) (stop_at + (int32_t) DRIVE_STOP_LEAD_MM) : 0;
-    uint32_t duration_ms = (uint32_t) mm * 1000u / DRIVE_MM_PER_SECOND;
+    // with the sensor the planned distance can differ from mm (snapped to a cell center)
+    int32_t planned_mm = use_sensor ? (int32_t) front_mm - stop_at : (int32_t) mm;
+    if (planned_mm < (int32_t) mm) {
+        planned_mm = (int32_t) mm;  // never a shorter time limit than for mm itself
+    }
+    uint32_t duration_ms = (uint32_t) planned_mm * 1000u / DRIVE_MM_PER_SECOND;
+    uint32_t limit_ms = use_sensor ? duration_ms * DRIVE_SENSOR_TIME_PCT / 100u : duration_ms;
     int16_t heading = commanded_yaw;  // absolute heading, so leftover turn error is corrected too
     uint32_t start = Timing_GetMilliseconds();
 
     while (1) {
         runIdleHook();
         uint32_t elapsed = Timing_GetMilliseconds() - start;
-        if (elapsed > DRIVE_TIMEOUT_MS || (!use_sensor && elapsed >= duration_ms)) {
+        if (elapsed > DRIVE_TIMEOUT_MS || elapsed >= limit_ms) {
             break;
         }
         if (!Motion_Update()) {
