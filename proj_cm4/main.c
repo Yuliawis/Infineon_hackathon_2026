@@ -58,6 +58,9 @@
 #define MOTION_PRINT_PERIOD_MS   (500u)
 #define DISTANCE_PRINT_PERIOD_MS (500u)
 
+#define PRINT_HEADING_DISTANCE   (1)       // 1 = print "T hdg=<deg> dist=<mm>"
+#define HEADING_DISTANCE_PRINT_PERIOD_MS (250u)
+
 // Maze exploration (Tremax). The car builds the map with the ultrasonic sensor and prints it to the UART.
 #define MAZE_EXPLORE             (1)       // 0 = old behavior (periodic distance/yaw prints only)
 #define MAZE_START_DELAY_MS      (3000u)   // time to put the car down before it starts moving
@@ -65,11 +68,6 @@
 #define MAZE_ENTRY_MM            (300u)    // from the start position to the center of the first cell. CALIBRATE.
 #define MAZE_REDRAW_ANSI         (0)       // 1 = clear the terminal before each map (needs a terminal with ANSI)
 #define MAZE_PRINT_MAP           (0)       // 0 = do not print the maze map after each step
-
-// Debug: print the gyro heading and the ultrasonic distance periodically, also while the car turns,
-// drives or scans (it runs from the main loop and from the blocking loops in car.c via Car_SetIdleHook).
-#define PRINT_HEADING_DISTANCE   (1)       // 1 = print "heading ... deg, distance ... mm"
-#define HEADING_DISTANCE_PRINT_PERIOD_MS (250u)
 
 #if MAZE_EXPLORE
 static void mazeExploreStep(void);
@@ -166,7 +164,7 @@ int main(void) {
                 bool hasDistance = Distance_GetMm(&filteredMm);
                 lastDistancePrintMs = nowMs;
                 // -1 means that there is no value (no echo, or the distance is out of range)
-                DBG_PRINTF("distance %d\n", hasDistance ? (int) filteredMm : -1);
+                DBG_PRINTF("T dist=%d\n", hasDistance ? (int) filteredMm : -1);
 
                 // LED + Distance test: red at 20 mm or closer, fading to green at 200 mm or farther. Tune it as you prefer.
                 if (hasDistance) {
@@ -202,7 +200,7 @@ int main(void) {
             uint32_t nowMs = Timing_GetMilliseconds();
             if (nowMs - lastPrintMs >= MOTION_PRINT_PERIOD_MS) {
                 lastPrintMs = nowMs;
-                DBG_PRINTF("yaw %d deg, rate %d dps\n", Motion_GetYaw(), Motion_GetYawRate());
+                DBG_PRINTF("T yaw=%d rate=%d\n", Motion_GetYaw(), Motion_GetYawRate());
             }
         }
 #endif  // MAZE_EXPLORE
@@ -227,7 +225,7 @@ static void printHeadingDistance(void) {
     uint16_t mm = 0;
     bool hasDistance = printDistanceReady && Distance_GetMm(&mm);
     // -1 means that there is no value (not ready, no echo, or out of range)
-    DBG_PRINTF("heading %d deg, distance %d mm\n",
+    DBG_PRINTF("T hdg=%d dist=%d\n",
                printMotionReady ? (int) Motion_GetYaw() : -1, hasDistance ? (int) mm : -1);
 #if defined(BLE_LOG_ENABLED)
     CM4_ForwardLogsToCM0();   // one non-blocking push; the blocking loops do not forward logs by themselves

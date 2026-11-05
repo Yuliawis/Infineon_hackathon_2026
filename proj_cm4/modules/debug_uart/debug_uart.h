@@ -19,6 +19,12 @@ cy_rslt_t Debug_Init(void);
 // printf-style log. Goes to the debug UART if this core owns it, and to the BLE log
 // (NUS TX notifications) when BLE_LOG_ENABLED. One call is limited to DEBUG_LINE_MAX - 1 characters.
 #define DEBUG_LINE_MAX 160
+
+// 1 = start every log line with "[s.mmm] ", the time since Timing_Init() (0.000 before it).
+#ifndef DEBUG_TIMESTAMP
+#define DEBUG_TIMESTAMP 1
+#endif
+#define DEBUG_STAMP_MAX 16  // longest stamp "[4294967.295] " plus a spare byte
 void Debug_Printf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 
 // Use instead of printf: compiles out unless the output goes somewhere.
