@@ -45,7 +45,6 @@
 #include "cybsp.h"
 #include "car.h"
 #include "motion.h"
-#include "maze.h"
 #include "head.h"
 #include "distance.h"
 #include "ledctrl.h"
@@ -53,24 +52,8 @@
 #include "debug_uart.h"
 #include "cm4_ipc.h"
 #include "cm4_cmd.h"
-
-
-#define PRINT_HEADING_DISTANCE   (1)       // 1 = print "T hdg=<deg> dist=<mm>"
-#define HEADING_DISTANCE_PRINT_PERIOD_MS (250u)
-
-// Maze exploration (Tremax). The car builds the map with the ultrasonic sensor and prints it to the UART.
-#define MAZE_START_DELAY_MS      (3000u)   // time to put the car down before it starts moving
-#define MAZE_CELL_MM             (600u)    // cell size
-#define MAZE_ENTRY_MM            (300u)    // from the start position to the center of the first cell. CALIBRATE.
-#define MAZE_REDRAW_ANSI         (0)       // 1 = clear the terminal before each map (needs a terminal with ANSI)
-#define MAZE_PRINT_MAP           (0)       // 0 = do not print the maze map after each step
-
-static void mazeExploreStep(void);
-#if PRINT_HEADING_DISTANCE
-static bool printMotionReady = false;
-static bool printDistanceReady = false;
-static void printHeadingDistance(void);
-#endif
+#include "explore.h"
+#include "telemetry.h"
 
 int main(void) {
     cy_rslt_t result;
@@ -81,7 +64,6 @@ int main(void) {
         CY_ASSERT(0);
     }
 
-    /* Enable global interrupts */
     __enable_irq();
 
     (void) Cy_IPC_Pipe_RegisterCallback(CY_IPC_EP_CYPIPE_ADDR, CM4_MessageCallback, CY_IPC_EP_CYPIPE_CM0_ADDR);
@@ -117,20 +99,15 @@ int main(void) {
     bool motionReady = Motion_Init();
     DBG_PRINTF(motionReady ? "Motion ready\n" : "Motion init failed\n");
 
-#if PRINT_HEADING_DISTANCE
-    printMotionReady = motionReady;
-    printDistanceReady = distanceReady;
-    Car_SetIdleHook(printHeadingDistance);
-#endif
+    Telemetry_Init(motionReady, distanceReady);
+    Car_SetIdleHook(Telemetry_Poll);
 
     bool mazeReady = distanceReady && motionReady;
     if (!mazeReady) {
         DBG_PRINTF("Maze: distance or motion is not ready, exploration is off\n");
     }
 
-    // Main loop. Your code goes here.
     for (;;) {
-        // Check for new messages from CM0 core and process them. This is the most important task.
         if (CM4_isDataAvailableFromCM0()) {
             CM4_ProcessIncomingIPCMessage(CM4_GetCM0Message());
         }
@@ -142,122 +119,9 @@ int main(void) {
 
         // One step is blocking (scan, turn, drive one cell), so the IPC messages above wait for it
         if (mazeReady) {
-            mazeExploreStep();
+            (void) Explore_Step();
         }
 
-#if PRINT_HEADING_DISTANCE
-        printHeadingDistance();
-#endif
+        Telemetry_Poll();
     }
-}
-
-#if PRINT_HEADING_DISTANCE
-// Runs inside the motor control loops too, so it must stay short: no Motion_Update() here
-// (it would steal gyro samples from the turn loop), no waiting.
-static void printHeadingDistance(void) {
-    static uint32_t lastPrintMs = 0;
-    uint32_t nowMs = Timing_GetMilliseconds();
-    if (nowMs - lastPrintMs < HEADING_DISTANCE_PRINT_PERIOD_MS) {
-        return;
-    }
-    lastPrintMs = nowMs;
-
-    uint16_t mm = 0;
-    bool hasDistance = printDistanceReady && Distance_GetMm(&mm);
-    // -1 means that there is no value (not ready, no echo, or out of range)
-    DBG_PRINTF("T hdg=%d dist=%d\n",
-               printMotionReady ? (int) Motion_GetYaw() : -1, hasDistance ? (int) mm : -1);
-#if defined(BLE_LOG_ENABLED)
-    CM4_ForwardLogsToCM0();   // one non-blocking push; the blocking loops do not forward logs by themselves
-#endif
-}
-#endif
-
-// The main loop forwards at most 254 bytes of log per iteration, and one iteration is a whole maze step,
-// so push the map out right away.
-static void flushBleLog(void) {
-#if defined(BLE_LOG_ENABLED)
-    uint8_t probe;
-    for (uint8_t tries = 0; tries < 40u && Debug_BleLogPeek(&probe, 1u) > 0u; ++tries) {
-        CM4_ForwardLogsToCM0();
-        Cy_SysLib_Delay(5);
-    }
-#endif
-}
-
-// Status color for the whole strip (G, R, B)
-static void setStatusLeds(uint8_t g, uint8_t r, uint8_t b) {
-    Leds_FillSolidColor(g, r, b);
-    Leds_Update();
-}
-
-// Print the whole map, with a step number and the chosen move.
-static void printMaze(uint32_t step, Maze_Dir next) {
-#if MAZE_PRINT_MAP
-    static const char* const DIR_NAME[] = {"N", "E", "S", "W", "-"};
-#if MAZE_REDRAW_ANSI
-    DBG_PRINTF("\033[2J\033[H");
-#endif
-    DBG_PRINTF("\n=== Maze step %lu, next: %s ===\n", (unsigned long) step, DIR_NAME[next]);
-    Maze_Print();
-#else
-    (void) step;
-    (void) next;
-#endif
-    flushBleLog();   // still push out the other logs of this step
-}
-
-// Drive forward. The head must look ahead and the distance filter must hold fresh front values:
-// if the head had to move or the car turned (refresh), wait for that first.
-static void driveForward(uint16_t mm, bool refresh) {
-    if (Head_GetPan() != 0) {
-        Head_Look(0, 0);
-        Car_Wait(MAZE_HEAD_SETTLE_MS);   // Car_Wait keeps the gyro and the debug print running
-        refresh = true;
-    }
-    if (refresh) {
-        Distance_Start();
-        Car_Wait(MAZE_MEASURE_MS);
-    }
-    Car_DriveForward(mm);
-}
-
-// One step of the exploration: look around, update the map, choose the way by Tremaux, move one cell.
-static void mazeExploreStep(void) {
-    static bool started = false;
-    static bool finished = false;
-    static uint32_t step = 0;
-
-    if (finished) {
-        return;
-    }
-
-    if (!started) {
-        started = true;
-        DBG_PRINTF("Maze: start in %u ms\n", (unsigned) MAZE_START_DELAY_MS);
-        Car_Wait(MAZE_START_DELAY_MS);
-        Car_ResetHeading();    // the car stands aligned to the walls: this is heading 0
-        driveForward(MAZE_ENTRY_MM, true);    // to the center of the first cell
-        Maze_Init();
-    }
-
-    setStatusLeds(0, 0, 60);    // blue: scanning
-    Maze_ScanCell();
-    Maze_Dir next = Maze_ChooseNext();
-    printMaze(step++, next);
-
-    if (next == MAZE_DIR_NONE) {
-        finished = true;
-        setStatusLeds(0, 60, 0);    // red: nowhere to go
-        DBG_PRINTF("Maze: no way to go, finished\n");
-        return;
-    }
-
-    setStatusLeds(60, 0, 0);    // green: moving
-    int16_t turn = Maze_TurnDegrees(next);
-    if (turn != 0) {
-        Car_TurnBy(turn);
-    }
-    driveForward(MAZE_CELL_MM, turn != 0);
-    (void) Maze_Advance(next);
 }
