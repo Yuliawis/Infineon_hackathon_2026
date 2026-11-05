@@ -4,8 +4,8 @@
 #include "cy_device.h"
 #include "cy_ipc_pipe.h"
 
-static bool isCM0Ready = true;
-static bool isDataAvailableFromCM0 = false;
+static volatile bool isCM0Ready = true;
+static volatile bool isDataAvailableFromCM0 = false;
 
 static ipc_msg_t ipcMsgFromCM0_Local;
 
@@ -48,11 +48,17 @@ ipc_msg_t* CM4_GetCM0Message(void) {
 
 bool CM4_SendCM0Message(ipc_msg_t* msg) {
     bool ret = true;
+    // Mark busy BEFORE sending: the release callback may fire before SendMessage returns.
+    isCM0Ready = false;
     /* Send the string message to CM0 */
     // For the sake of simplicity, we won't record exact error.
     // Inversion is needed so retuned 0 error will be actually converted to true
     ret = (bool) !Cy_IPC_Pipe_SendMessage(CY_IPC_EP_CYPIPE_CM0_ADDR, CY_IPC_EP_CYPIPE_CM4_ADDR, (void*) msg,
                                           CM4_ReleaseCallback);
+    if (!ret) {
+        // Message was not sent, so no release callback will come
+        isCM0Ready = true;
+    }
     return ret;
 }
 

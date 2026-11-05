@@ -62,4 +62,11 @@ ifneq ($(RETARGET_CORE),)
 DEFINES+=RETARGET_CORE_$(RETARGET_CORE)
 endif
 
+# Also send DBG_PRINTF output of both cores over BLE (NUS TX notifications), e.g. 'make build BLE_LOG=0'.
+# Read it on the laptop with tools/ble_serial.py (see README).
+BLE_LOG?=1
+ifeq ($(BLE_LOG),1)
+DEFINES+=BLE_LOG_ENABLED
+endif
+
 include ../common_app.mk

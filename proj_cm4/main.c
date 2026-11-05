@@ -48,14 +48,12 @@
 #include "maze.h"
 #include "head.h"
 #include "distance.h"
-#include "music.h"
 #include "ledctrl.h"
 #include "i2c_common.h"
 #include "debug_uart.h"
 #include "cm4_ipc.h"
+#include "cm4_cmd.h"
 
-#include "cm0_cm4_shared_cmd.h"
-#include "cm4_command_list.h"
 
 #define MOTION_PRINT_PERIOD_MS   (500u)
 #define DISTANCE_PRINT_PERIOD_MS (500u)
@@ -110,7 +108,6 @@ int main(void) {
     if (!Head_Init()) {
         DBG_PRINTF("Head init failed\n");
     }
-    Sound_Init();
     (void) Leds_Init();
 
     Timing_Init();
@@ -127,40 +124,6 @@ int main(void) {
     bool motionReady = Motion_Init();
     DBG_PRINTF(motionReady ? "Motion ready\n" : "Motion init failed\n");
 
-    // Temporary head test (after gyro calibration, so the movement does not disturb it)
-    /*
-    DBG_PRINTF("Head test\n");
-    Head_Look(90, 0);
-    Cy_SysLib_Delay(1800);
-    Head_Look(-90, 0);
-    Cy_SysLib_Delay(1800);
-    Head_Look(0, 0);
-    Cy_SysLib_Delay(800);
-    Head_Look(0, 10);
-    Cy_SysLib_Delay(1800);
-    Head_Look(0, -20);
-    Cy_SysLib_Delay(1800);
-    Head_Look(0, 0);
-    Cy_SysLib_Delay(1800);
-    DBG_PRINTF("Head test done\n");
-    */
-
-
-    // Music_FurElise();
-
-    /*
-    Motor_Move(2000, 0, 0, 0);
-    CyDelay(1000);
-    Motor_Move(0, 2000, 0, 0);
-    CyDelay(1000);
-    Motor_Move(0, 0, 2000, 0);
-    CyDelay(1000);
-    Motor_Move(0, 0, 0, 2000);
-    CyDelay(1000);
-    Motor_Move(0, 0, 0, 0);
-    CyDelay(1000);
-    */
-
 #if MAZE_EXPLORE
     bool mazeReady = distanceReady && motionReady;
     if (!mazeReady) {
@@ -172,7 +135,7 @@ int main(void) {
     for (;;) {
         // Check for new messages from CM0 core and process them. This is the most important task.
         if (CM4_isDataAvailableFromCM0()) {
-            processIncomingIPCMessage(CM4_GetCM0Message());
+            CM4_ProcessIncomingIPCMessage(CM4_GetCM0Message());
         }
 
 #if MAZE_EXPLORE
@@ -181,6 +144,10 @@ int main(void) {
             mazeExploreStep();
         }
 #else
+#if defined(BLE_LOG_ENABLED)
+        CM4_ForwardLogsToCM0();
+#endif
+
         if (distanceReady) {
             static uint32_t lastDistancePrintMs = 0;
             uint32_t nowMs = Timing_GetMilliseconds();
