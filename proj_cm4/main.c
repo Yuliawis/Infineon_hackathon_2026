@@ -72,7 +72,7 @@
 #define HEADING_DISTANCE_PRINT_PERIOD_MS (250u)
 
 // Turn test: instead of the maze, turn in place through a list of angles once, to tune the TURN_* constants
-#define TURN_TEST                (1)       // 1 = run the turn test instead of the maze
+#define TURN_TEST                (0)       // 1 = run the turn test instead of the maze
 #define TURN_TEST_PAUSE_MS       (1500u)   // pause between turns
 
 #if TURN_TEST
