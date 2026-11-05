@@ -65,16 +65,6 @@
 #define MAZE_ENTRY_MM            (300u)    // from the start position to the center of the first cell. CALIBRATE.
 #define MAZE_REDRAW_ANSI         (0)       // 1 = clear the terminal before each map (needs a terminal with ANSI)
 
-ipc_msg_t ipcMsgForCM0 = {/* IPC structure to be sent to CM0 */
-                          .clientId = IPC_CM4_TO_CM0_CLIENT_ID,
-                          .userCode = 0,
-                          .intrMask = CY_SYS_CYPIPE_INTR_MASK,
-                          .buffer = {},
-                          .len = 0};
-
-// Private function declarations for handling IPC messages and CM4 commands.
-static void processIncomingIPCMessage(ipc_msg_t* msg);
-static void processCM4Command(enum cm4CommandList cmd);
 #if MAZE_EXPLORE
 static void mazeExploreStep(void);
 #endif
@@ -263,65 +253,3 @@ static void mazeExploreStep(void) {
     (void) Maze_Advance(next);
 }
 #endif  // MAZE_EXPLORE
-
-static void processIncomingIPCMessage(ipc_msg_t* msg) {
-    // In general, impossible situation, but never trust anyone.
-    if (msg != NULL) {
-        // Process messages with at least 1 byte of payload
-        if (msg->len > 0) {
-            // Decode message code. You would mostly like to use Commands
-            switch (msg->userCode) {
-                case IPC_USR_CODE_CMD: {
-                    // Only [0] element was used for simplicity.
-                    // IDEA: You could expand it to accept strings or more complex data packets!
-                    // You can define array of strings and perform memcmp. This operation is a bit more costful.
-                    processCM4Command((enum cm4CommandList) msg->buffer[0]);
-                    break;
-                }
-                case IPC_USR_CODE_REQ: {
-                    // Not implemented. You can be very creative here!
-                    break;
-                }
-                default: break;
-            }
-        }
-    }
-}
-
-static void processCM4Command(enum cm4CommandList cmd) {
-    switch (cmd) {
-        case CM4_COMMAND_LED_ENA: {
-            Cy_GPIO_Write(CYBSP_USER_LED_PORT, CYBSP_USER_LED_NUM, 0);
-            Cy_GPIO_Write(CYBSP_USER_LED2_PORT, CYBSP_USER_LED2_NUM, 0);
-            break;
-        }
-        case CM4_COMMAND_LED_DIS: {
-            Cy_GPIO_Write(CYBSP_USER_LED_PORT, CYBSP_USER_LED_NUM, 1);
-            Cy_GPIO_Write(CYBSP_USER_LED2_PORT, CYBSP_USER_LED2_NUM, 1);
-            break;
-        }
-        case CM4_COMMAND_CAR_SAY: {
-            if (CM4_IsCM0Ready()) {
-                ipcMsgForCM0.userCode = IPC_USR_CODE_CMD;
-                ipcMsgForCM0.len = 0x01;
-                ipcMsgForCM0.buffer[0] = (uint8_t) CM0_SHARED_CAR_SAY;
-                CM4_SendCM0Message(&ipcMsgForCM0);
-            }
-            break;
-        }
-        case CM4_COMMAND_ECHO: {
-            if (CM4_IsCM0Ready()) {
-                ipcMsgForCM0.userCode = IPC_USR_CODE_CMD;
-                ipcMsgForCM0.len = CM4_GetCM0Message()->len;
-                ipcMsgForCM0.buffer[0] = (uint8_t) CM0_SHARED_BLE_NTF_RELAY;
-                memcpy(&ipcMsgForCM0.buffer[1], &CM4_GetCM0Message()->buffer[1], ipcMsgForCM0.len - 1);
-                CM4_SendCM0Message(&ipcMsgForCM0);
-            }
-            break;
-        }
-        default: break;
-    }
-}
-
-
-/* [] END OF FILE */
