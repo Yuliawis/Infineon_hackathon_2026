@@ -68,7 +68,7 @@ ipc_msg_t ipcMsgForCM0 = {/* IPC structure to be sent to CM0 */
 
 // Private function declarations for handling IPC messages and CM4 commands.
 static void processIncomingIPCMessage(ipc_msg_t* msg);
-static void processCM4Command(enum cm4CommandList cmd);
+static void processCM4Command(ipc_msg_t* msg);
 
 int main(void) {
     cy_rslt_t result;
@@ -213,7 +213,7 @@ static void processIncomingIPCMessage(ipc_msg_t* msg) {
                     // Only [0] element was used for simplicity.
                     // IDEA: You could expand it to accept strings or more complex data packets!
                     // You can define array of strings and perform memcmp. This operation is a bit more costful.
-                    processCM4Command((enum cm4CommandList) msg->buffer[0]);
+                    processCM4Command(msg);
                     break;
                 }
                 case IPC_USR_CODE_REQ: {
@@ -226,8 +226,9 @@ static void processIncomingIPCMessage(ipc_msg_t* msg) {
     }
 }
 
-static void processCM4Command(enum cm4CommandList cmd) {
-    switch (cmd) {
+// msg->buffer[0] is the command, msg->buffer[1..len-1] are its parameters.
+static void processCM4Command(ipc_msg_t* msg) {
+    switch ((enum cm4CommandList) msg->buffer[0]) {
         case CM4_COMMAND_LED_ENA: {
             Cy_GPIO_Write(CYBSP_USER_LED_PORT, CYBSP_USER_LED_NUM, 0);
             Cy_GPIO_Write(CYBSP_USER_LED2_PORT, CYBSP_USER_LED2_NUM, 0);
@@ -250,9 +251,9 @@ static void processCM4Command(enum cm4CommandList cmd) {
         case CM4_COMMAND_ECHO: {
             if (CM4_IsCM0Ready()) {
                 ipcMsgForCM0.userCode = IPC_USR_CODE_CMD;
-                ipcMsgForCM0.len = CM4_GetCM0Message()->len;
+                ipcMsgForCM0.len = msg->len;
                 ipcMsgForCM0.buffer[0] = (uint8_t) CM0_SHARED_BLE_NTF_RELAY;
-                memcpy(&ipcMsgForCM0.buffer[1], &CM4_GetCM0Message()->buffer[1], ipcMsgForCM0.len - 1);
+                memcpy(&ipcMsgForCM0.buffer[1], &msg->buffer[1], ipcMsgForCM0.len - 1);
                 CM4_SendCM0Message(&ipcMsgForCM0);
             }
             break;

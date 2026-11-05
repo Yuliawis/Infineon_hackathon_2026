@@ -47,7 +47,7 @@ const char* carsay = "Wroom!";
 // ----------------------- Variables END -----------------------
 
 static void processIncomingIPCMessage(ipc_msg_t* msg);
-static void processCM0Command(uint8_t cmd);
+static void processCM0Command(ipc_msg_t* msg);
 
 // NvicMux0/1 are reserved (ROM calls, IPC pipe); mux must be < 8 to wake from Deep Sleep.
 static const cy_stc_sysint_t blessIsrCfg = {
@@ -92,12 +92,17 @@ static void parseIncomingBLECommand(uint8_t* val, uint16 len) {
         case BLE_NUS_PAYLOAD_CM4_CMD: {
             // Command will be routed to CM4
             DBG_PRINTF("CM4 CMD\r\n");
-            ipcMsgForCM4.userCode = IPC_USR_CODE_CMD;
-            // We don't send the first byte because it is intended only for CM0P core!
-            ipcMsgForCM4.len = len - 1;
-            memcpy(&ipcMsgForCM4.buffer[0], &val[1], ipcMsgForCM4.len);
+            // Only touch the IPC buffer when the previous message has been released by CM4
             if (CM0_IsCM4Ready()) {
-                CM0_SendCM4Message(&ipcMsgForCM4);
+                ipcMsgForCM4.userCode = IPC_USR_CODE_CMD;
+                // We don't send the first byte because it is intended only for CM0P core!
+                ipcMsgForCM4.len = len - 1;
+                memcpy(&ipcMsgForCM4.buffer[0], &val[1], ipcMsgForCM4.len);
+                if (!CM0_SendCM4Message(&ipcMsgForCM4)) {
+                    DBG_PRINTF("IPC send to CM4 failed, command dropped\r\n");
+                }
+            } else {
+                DBG_PRINTF("CM4 busy, command dropped\r\n");
             }
             break;
         }
@@ -237,7 +242,7 @@ static void AppCallBack(uint32_t event, void* eventParam) {
                 isSubscribedToNtf = !!(writeReqParam->handleValPair.value.val[0]);
 
                 DBG_PRINTF("NEW NTF STATUS: 0x%X\r\n", isSubscribedToNtf);
-            } else {
+            } else if (writeReqParam->handleValPair.attrHandle == CY_BLE_NUS_UART_NUS_RX_CHAR_HANDLE) {
 // Do not waste cycles if not in debug mode
 #if DEBUG_UART_ENABLED == 1
                 // Debug-display message/data
@@ -314,7 +319,7 @@ static void processIncomingIPCMessage(ipc_msg_t* msg) {
                     // Only [0] element was used for simplicity.
                     // IDEA: You could expand it to accept strings or more complex data packets!
                     // You can define array of strings and perform memcmp. This operation is a bit more costful.
-                    processCM0Command(msg->buffer[0]);
+                    processCM0Command(msg);
                     break;
                 }
                 case IPC_USR_CODE_REQ: {
@@ -327,16 +332,17 @@ static void processIncomingIPCMessage(ipc_msg_t* msg) {
     }
 }
 
-static void processCM0Command(uint8_t cmd) {
-    switch (cmd) {
+// msg->buffer[0] is the command, msg->buffer[1..len-1] are its parameters.
+static void processCM0Command(ipc_msg_t* msg) {
+    switch (msg->buffer[0]) {
         case CM0_SHARED_BLE_NTF_RELAY: {
             DBG_PRINTF("Relay\r\n");
-            sendDataNotificationNUS(&CM0_GetCM4Message()->buffer[1], CM0_GetCM4Message()->len - 1);
+            sendDataNotificationNUS(&msg->buffer[1], msg->len - 1);
             break;
         }
         case CM0_SHARED_CAR_SAY: {
             DBG_PRINTF("Car Say\r\n");
-            sendDataNotificationNUS((uint8_t*) carsay, strlen(carsay) - 1);
+            sendDataNotificationNUS((uint8_t*) carsay, strlen(carsay));
             break;
         }
         default: break;
