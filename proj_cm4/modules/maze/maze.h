@@ -9,7 +9,7 @@ extern "C" {
 #include <stdbool.h>
 
 // Tremaux maze map: 60x60 cm cells, marks (0..2) on passages. NORTH = direction the car faces at the start.
-#define MAZE_SIZE (20u)
+#define MAZE_SIZE    (20u)
 #define MAZE_START_X (MAZE_SIZE / 2u)
 #define MAZE_START_Y (MAZE_SIZE / 2u)
 
@@ -23,14 +23,7 @@ extern "C" {
 #define MAZE_HEAD_SETTLE_MS (500u)
 #define MAZE_MEASURE_MS     (250u)
 
-typedef enum
-{
-  MAZE_NORTH = 0,
-  MAZE_EAST,
-  MAZE_SOUTH,
-  MAZE_WEST,
-  MAZE_DIR_NONE
-} Maze_Dir;
+typedef enum { MAZE_NORTH = 0, MAZE_EAST, MAZE_SOUTH, MAZE_WEST, MAZE_DIR_NONE } Maze_Dir;
 
 ///////////////////// MAP /////////////////////////////////////////////////////
 void Maze_Init(void);

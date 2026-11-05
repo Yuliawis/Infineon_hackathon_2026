@@ -62,7 +62,7 @@ bool Explore_Step(void) {
         started = true;
         DBG_PRINTF("Maze: start in %u ms\n", (unsigned) EXPLORE_START_DELAY_MS);
         Car_Wait(EXPLORE_START_DELAY_MS);
-        Car_ResetHeading();                     // the car stands aligned to the walls: this is heading 0
+        Car_ResetHeading();                    // the car stands aligned to the walls: this is heading 0
         driveForward(EXPLORE_ENTRY_MM, true);  // to the center of the first cell
         Maze_Init();
     }
