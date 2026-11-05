@@ -192,6 +192,24 @@ int main(void) {
 }
 
 #if MAZE_EXPLORE
+// The main loop forwards at most 254 bytes of log per iteration, and one iteration is a whole maze step,
+// so push the map out right away.
+static void flushBleLog(void) {
+#if defined(BLE_LOG_ENABLED)
+    uint8_t probe;
+    for (uint8_t tries = 0; tries < 40u && Debug_BleLogPeek(&probe, 1u) > 0u; ++tries) {
+        CM4_ForwardLogsToCM0();
+        Cy_SysLib_Delay(5);
+    }
+#endif
+}
+
+// Status color for the whole strip (G, R, B)
+static void setStatusLeds(uint8_t g, uint8_t r, uint8_t b) {
+    Leds_FillSolidColor(g, r, b);
+    Leds_Update();
+}
+
 // Print the whole map, with a step number and the chosen move.
 static void printMaze(uint32_t step, Maze_Dir next) {
     static const char* const DIR_NAME[] = {"N", "E", "S", "W", "-"};
@@ -200,6 +218,7 @@ static void printMaze(uint32_t step, Maze_Dir next) {
 #endif
     DBG_PRINTF("\n=== Maze step %lu, next: %s ===\n", (unsigned long) step, DIR_NAME[next]);
     Maze_Print();
+    flushBleLog();
 }
 
 // Drive forward. The head must look ahead and the distance filter must hold fresh front values:
@@ -235,16 +254,19 @@ static void mazeExploreStep(void) {
         Maze_Init();
     }
 
+    setStatusLeds(0, 0, 60);    // blue: scanning
     Maze_ScanCell();
     Maze_Dir next = Maze_ChooseNext();
     printMaze(step++, next);
 
     if (next == MAZE_DIR_NONE) {
         finished = true;
+        setStatusLeds(0, 60, 0);    // red: nowhere to go
         DBG_PRINTF("Maze: no way to go, finished\n");
         return;
     }
 
+    setStatusLeds(60, 0, 0);    // green: moving
     int16_t turn = Maze_TurnDegrees(next);
     if (turn != 0) {
         Car_TurnBy(turn);
