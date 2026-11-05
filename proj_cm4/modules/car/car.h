@@ -22,6 +22,8 @@ void Motor_Move(int m1_speed, int m2_speed, int m3_speed, int m4_speed);//A func
 ///////////////////// MOTION HELPERS //////////////////////////////////////////
 // Blocking in-place turn using the gyro: positive = left, negative = right.
 void Car_TurnBy(int16_t delta_deg);
+// Blocking straight drive by about mm millimeters, heading held by the gyro, front distance used if available.
+void Car_DriveForward(uint16_t mm);
 
 ///////////////////// SOUND API ///////////////////////////////////////////////
 void Sound_Init(void);

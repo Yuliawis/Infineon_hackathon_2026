@@ -5,6 +5,7 @@
 #include "cybsp.h"
 #include "PCA9685.h"
 #include "motion.h"
+#include "distance.h"
 #include "cybsp.h"
 #include <stdlib.h>
 
@@ -23,6 +24,12 @@
 #define TURN_SPEED          (1200)
 #define TURN_TOLERANCE_DEG  (1)
 #define TURN_TIMEOUT_MS     (5000u)
+#define DRIVE_SPEED         (1500)    // wheel speed while driving straight
+#define DRIVE_HEADING_GAIN  (30)      // speed correction per degree of heading error
+#define DRIVE_TIMEOUT_MS    (6000u)
+#define DRIVE_MM_PER_SECOND (250u)    // car speed at DRIVE_SPEED, used without a wall ahead. CALIBRATE on the car.
+#define DRIVE_SENSOR_MAX_MM (2000u)   // farther than this the wall ahead is not trusted as a reference
+#define DRIVE_SENSOR_MARGIN_MM (100u) // keep at least this distance to the wall ahead
 
 
 /* 8MHz IMO clock with 8000000 reload value to generate 1s interrupt */
@@ -162,3 +169,40 @@ void Car_TurnBy(int16_t delta_deg)
     Motor_Move(0, 0, 0, 0);
 }
 
+/* Drive straight forward by about mm millimeters, holding the heading with the gyro.
+ * If a wall is seen ahead (head must look forward, distance filter must be fresh), the distance to it is the
+ * reference: the car stops when it got mm closer. Otherwise the time is used (DRIVE_MM_PER_SECOND).
+ * Blocking. Needs Motion_Init(), Distance_Start() and Timing_Init() before. */
+void Car_DriveForward(uint16_t mm)
+{
+    uint16_t front_mm = 0;
+    bool use_sensor = Distance_GetMm(&front_mm) && front_mm <= DRIVE_SENSOR_MAX_MM
+                      && front_mm >= mm + DRIVE_SENSOR_MARGIN_MM;
+    uint16_t stop_mm = use_sensor ? (uint16_t)(front_mm - mm) : 0;
+    uint32_t duration_ms = (uint32_t)mm * 1000u / DRIVE_MM_PER_SECOND;
+    int16_t heading = Motion_GetYaw();
+    uint32_t start = Timing_GetMilliseconds();
+
+    while (1)
+    {
+        uint32_t elapsed = Timing_GetMilliseconds() - start;
+        if (elapsed > DRIVE_TIMEOUT_MS || (!use_sensor && elapsed >= duration_ms))
+        {
+            break;
+        }
+        if (!Motion_Update())
+        {
+            continue;   // no new gyro sample yet
+        }
+        uint16_t now_mm;
+        if (use_sensor && Distance_GetMm(&now_mm) && now_mm <= stop_mm)
+        {
+            break;
+        }
+        // error > 0 means the car points too far right, so the left wheels slow down and the right ones speed up
+        int correction = Motion_GetYawError(heading) * DRIVE_HEADING_GAIN;
+        Motor_Move(DRIVE_SPEED - correction, DRIVE_SPEED + correction,
+                   DRIVE_SPEED - correction, DRIVE_SPEED + correction);   // M1, M3 left; M2, M4 right
+    }
+    Motor_Move(0, 0, 0, 0);
+}

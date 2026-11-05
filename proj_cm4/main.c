@@ -45,6 +45,7 @@
 #include "cybsp.h"
 #include "car.h"
 #include "motion.h"
+#include "maze.h"
 #include "head.h"
 #include "distance.h"
 #include "music.h"
@@ -59,6 +60,13 @@
 #define MOTION_PRINT_PERIOD_MS   (500u)
 #define DISTANCE_PRINT_PERIOD_MS (500u)
 
+// Maze exploration (Tremax). The car builds the map with the ultrasonic sensor and prints it to the UART.
+#define MAZE_EXPLORE             (1)       // 0 = old behavior (periodic distance/yaw prints only)
+#define MAZE_START_DELAY_MS      (3000u)   // time to put the car down before it starts moving
+#define MAZE_CELL_MM             (600u)    // cell size
+#define MAZE_ENTRY_MM            (300u)    // from the start position to the center of the first cell. CALIBRATE.
+#define MAZE_REDRAW_ANSI         (0)       // 1 = clear the terminal before each map (needs a terminal with ANSI)
+
 ipc_msg_t ipcMsgForCM0 = {/* IPC structure to be sent to CM0 */
                           .clientId = IPC_CM4_TO_CM0_CLIENT_ID,
                           .userCode = 0,
@@ -69,6 +77,9 @@ ipc_msg_t ipcMsgForCM0 = {/* IPC structure to be sent to CM0 */
 // Private function declarations for handling IPC messages and CM4 commands.
 static void processIncomingIPCMessage(ipc_msg_t* msg);
 static void processCM4Command(enum cm4CommandList cmd);
+#if MAZE_EXPLORE
+static void mazeExploreStep(void);
+#endif
 
 int main(void) {
     cy_rslt_t result;
@@ -150,9 +161,12 @@ int main(void) {
     CyDelay(1000);
     */
 
-    Car_TurnBy(45);
-    Car_TurnBy(-45);
-
+#if MAZE_EXPLORE
+    bool mazeReady = distanceReady && motionReady;
+    if (!mazeReady) {
+        DBG_PRINTF("Maze: distance or motion is not ready, exploration is off\n");
+    }
+#endif
 
     // Main loop. Your code goes here.
     for (;;) {
@@ -161,6 +175,12 @@ int main(void) {
             processIncomingIPCMessage(CM4_GetCM0Message());
         }
 
+#if MAZE_EXPLORE
+        // One step is blocking (scan, turn, drive one cell), so the IPC messages above wait for it
+        if (mazeReady) {
+            mazeExploreStep();
+        }
+#else
         if (distanceReady) {
             static uint32_t lastDistancePrintMs = 0;
             uint32_t nowMs = Timing_GetMilliseconds();
@@ -210,8 +230,72 @@ int main(void) {
                 DBG_PRINTF("yaw %d deg, rate %d dps\n", Motion_GetYaw(), Motion_GetYawRate());
             }
         }
+#endif  // MAZE_EXPLORE
     }
 }
+
+#if MAZE_EXPLORE
+// Print the whole map, with a step number and the chosen move.
+static void printMaze(uint32_t step, Maze_Dir next) {
+    static const char* const DIR_NAME[] = {"N", "E", "S", "W", "-"};
+#if MAZE_REDRAW_ANSI
+    DBG_PRINTF("\033[2J\033[H");
+#endif
+    DBG_PRINTF("\n=== Maze step %lu, next: %s ===\n", (unsigned long) step, DIR_NAME[next]);
+    Maze_Print();
+}
+
+// Drive forward. The head must look ahead and the distance filter must hold fresh front values:
+// if the head had to move or the car turned (refresh), wait for that first.
+static void driveForward(uint16_t mm, bool refresh) {
+    if (Head_GetPan() != 0) {
+        Head_Look(0, 0);
+        Cy_SysLib_Delay(MAZE_HEAD_SETTLE_MS);
+        refresh = true;
+    }
+    if (refresh) {
+        Distance_Start();
+        Cy_SysLib_Delay(MAZE_MEASURE_MS);
+    }
+    Car_DriveForward(mm);
+}
+
+// One step of the exploration: look around, update the map, choose the way by Tremaux, move one cell.
+static void mazeExploreStep(void) {
+    static bool started = false;
+    static bool finished = false;
+    static uint32_t step = 0;
+
+    if (finished) {
+        return;
+    }
+
+    if (!started) {
+        started = true;
+        DBG_PRINTF("Maze: start in %u ms\n", (unsigned) MAZE_START_DELAY_MS);
+        Cy_SysLib_Delay(MAZE_START_DELAY_MS);
+        driveForward(MAZE_ENTRY_MM, true);    // to the center of the first cell
+        Maze_Init();
+    }
+
+    Maze_ScanCell();
+    Maze_Dir next = Maze_ChooseNext();
+    printMaze(step++, next);
+
+    if (next == MAZE_DIR_NONE) {
+        finished = true;
+        DBG_PRINTF("Maze: no way to go, finished\n");
+        return;
+    }
+
+    int16_t turn = Maze_TurnDegrees(next);
+    if (turn != 0) {
+        Car_TurnBy(turn);
+    }
+    driveForward(MAZE_CELL_MM, turn != 0);
+    (void) Maze_Advance(next);
+}
+#endif  // MAZE_EXPLORE
 
 static void processIncomingIPCMessage(ipc_msg_t* msg) {
     // In general, impossible situation, but never trust anyone.
