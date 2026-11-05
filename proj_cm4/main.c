@@ -71,15 +71,6 @@
 #define PRINT_HEADING_DISTANCE   (1)       // 1 = print "heading ... deg, distance ... mm"
 #define HEADING_DISTANCE_PRINT_PERIOD_MS (250u)
 
-// Turn test: instead of the maze, turn in place through a list of angles once, to tune the TURN_* constants
-#define TURN_TEST                (0)       // 1 = run the turn test instead of the maze
-#define TURN_TEST_PAUSE_MS       (1500u)   // pause between turns
-
-#if TURN_TEST
-#undef MAZE_EXPLORE
-#define MAZE_EXPLORE (0)
-#endif
-
 #if MAZE_EXPLORE
 static void mazeExploreStep(void);
 #endif
@@ -154,34 +145,17 @@ int main(void) {
             CM4_ProcessIncomingIPCMessage(CM4_GetCM0Message());
         }
 
-#if TURN_TEST
-        static bool turnTestDone = false;
-        if (!turnTestDone && motionReady) {
-            static const int16_t angles[] = {90, 90, 90, 90, -90, -90, -90, -90, 180, -180, 45, -45, 30, -30};
-            turnTestDone = true;
-            Car_Wait(MAZE_START_DELAY_MS);   // time to put the car down
-            Car_ResetHeading();
-            for (uint32_t i = 0; i < sizeof(angles) / sizeof(angles[0]); ++i) {
-                Car_TurnBy(angles[i]);
-                DBG_PRINTF("turn %d: heading %d, target %d\n", (int) angles[i], (int) Motion_GetYaw(),
-                           (int) Car_GetHeading());
-                Car_Wait(TURN_TEST_PAUSE_MS);
-            }
-            DBG_PRINTF("Turn test done\n");
-        }
 #if defined(BLE_LOG_ENABLED)
+        // Hand buffered log text to CM0+ for BLE (non-blocking, at most 254 bytes per call)
         CM4_ForwardLogsToCM0();
 #endif
-#elif MAZE_EXPLORE
+
+#if MAZE_EXPLORE
         // One step is blocking (scan, turn, drive one cell), so the IPC messages above wait for it
         if (mazeReady) {
             mazeExploreStep();
         }
 #else
-#if defined(BLE_LOG_ENABLED)
-        CM4_ForwardLogsToCM0();
-#endif
-
         if (distanceReady) {
             static uint32_t lastDistancePrintMs = 0;
             uint32_t nowMs = Timing_GetMilliseconds();
