@@ -4,6 +4,7 @@
 #include "head.h"
 #include "distance.h"
 #include "debug_uart.h"
+#include "car.h"
 
 #define DIR_COUNT (4)
 #define HEAD_LEFT_DEG  (90)
@@ -150,10 +151,10 @@ static bool wallAt(int8_t pan_deg, uint16_t threshold_mm)
   if (Head_GetPan() != pan_deg)
   {
     Head_Look(pan_deg, 0);
-    Cy_SysLib_Delay(MAZE_HEAD_SETTLE_MS);
+    Car_Wait(MAZE_HEAD_SETTLE_MS);   // Car_Wait, not Cy_SysLib_Delay: keeps the gyro and the idle hook running
   }
   Distance_Start();
-  Cy_SysLib_Delay(MAZE_MEASURE_MS);
+  Car_Wait(MAZE_MEASURE_MS);
   if (!Distance_GetMm(&mm))
   {
     return false;

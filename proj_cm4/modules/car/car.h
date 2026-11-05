@@ -29,6 +29,10 @@ void Car_DriveForward(uint16_t mm);
 // Wait while still reading the gyro (use instead of Cy_SysLib_Delay while moving).
 void Car_Wait(uint32_t ms);
 
+// Function called on every pass of the blocking loops (Car_TurnBy, Car_DriveForward, Car_Wait).
+// Keep it short and non-blocking, it runs inside the motor control loops. NULL = none.
+void Car_SetIdleHook(void (*hook)(void));
+
 ///////////////////// SOUND API ///////////////////////////////////////////////
 void Sound_Init(void);
 void Sound_WriteTone(uint32_t freq);
