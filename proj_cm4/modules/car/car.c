@@ -38,6 +38,8 @@
 #define DRIVE_MM_PER_SECOND    (250u)   // car speed at DRIVE_SPEED, used without a wall ahead. CALIBRATE on the car.
 #define DRIVE_SENSOR_MAX_MM    (2000u)  // farther than this the wall ahead is not trusted as a reference
 #define DRIVE_SENSOR_MARGIN_MM (100u)   // keep at least this distance to the wall ahead
+#define DRIVE_SENSOR_OFFSET_MM (70)     // from the car center forward to the distance sensor. CALIBRATE on the car.
+#define DRIVE_STOP_LEAD_MM     (50u)    // stop this much early: sensor lag + coasting after stop. CALIBRATE on the car.
 
 
 /* 8MHz IMO clock with 8000000 reload value to generate 1s interrupt */
@@ -272,15 +274,39 @@ void Car_Wait(uint32_t ms) {
     }
 }
 
+/* Front distance at which to stop, or -1 if the wall ahead can't be used as the reference.
+ * grid_mm == 0: stop when mm closer than now.
+ * grid_mm > 0: walls stand on a grid of grid_mm cells and the car should stop in a cell center, where the
+ * wall ahead is k * grid_mm + grid_mm / 2 from the car center. Take the center nearest to "mm farther",
+ * so the error of the previous drive is corrected instead of carried on. A correction of more than a quarter
+ * cell means the wall is not where the grid puts it (bad reading, other layout): then just mm. */
+static int32_t driveStopDistance(uint16_t front_mm, uint16_t mm, uint16_t grid_mm) {
+    if (front_mm > DRIVE_SENSOR_MAX_MM) {
+        return -1;
+    }
+    int32_t stop_mm = (int32_t) front_mm - (int32_t) mm;
+    if (grid_mm > 0u && stop_mm >= 0) {
+        int32_t grid = (int32_t) grid_mm;
+        int32_t left_mm = stop_mm + DRIVE_SENSOR_OFFSET_MM;  // car center to the wall after mm
+        int32_t center_mm = (left_mm / grid) * grid + grid / 2;  // nearest k * grid + grid / 2
+        int32_t correction_mm = center_mm - left_mm;
+        if (correction_mm <= grid / 4 && correction_mm >= -grid / 4) {
+            stop_mm = center_mm - DRIVE_SENSOR_OFFSET_MM;
+        }
+    }
+    return (stop_mm >= (int32_t) DRIVE_SENSOR_MARGIN_MM) ? stop_mm : -1;
+}
+
 /* Drive straight forward by about mm millimeters, holding the heading with the gyro.
  * If a wall is seen ahead (head must look forward, distance filter must be fresh), the distance to it is the
- * reference: the car stops when it got mm closer. Otherwise the time is used (DRIVE_MM_PER_SECOND).
+ * reference: see driveStopDistance(), the car stops DRIVE_STOP_LEAD_MM early to cover sensor lag and coasting.
+ * Otherwise the time is used (DRIVE_MM_PER_SECOND).
  * Blocking. Needs Motion_Init(), Distance_Start() and Timing_Init() before. */
-void Car_DriveForward(uint16_t mm) {
+void Car_DriveForward(uint16_t mm, uint16_t grid_mm) {
     uint16_t front_mm = 0;
-    bool use_sensor =
-            Distance_GetMm(&front_mm) && front_mm <= DRIVE_SENSOR_MAX_MM && front_mm >= mm + DRIVE_SENSOR_MARGIN_MM;
-    uint16_t stop_mm = use_sensor ? (uint16_t) (front_mm - mm) : 0;
+    int32_t stop_at = Distance_GetMm(&front_mm) ? driveStopDistance(front_mm, mm, grid_mm) : -1;
+    bool use_sensor = stop_at >= 0;
+    uint16_t stop_mm = use_sensor ? (uint16_t) (stop_at + (int32_t) DRIVE_STOP_LEAD_MM) : 0;
     uint32_t duration_ms = (uint32_t) mm * 1000u / DRIVE_MM_PER_SECOND;
     int16_t heading = commanded_yaw;  // absolute heading, so leftover turn error is corrected too
     uint32_t start = Timing_GetMilliseconds();
