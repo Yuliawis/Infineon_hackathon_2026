@@ -167,7 +167,8 @@ void Maze_ScanCell(void) {
 }
 
 ///////////////////// TREMAUX /////////////////////////////////////////////////
-static const int8_t PREFERENCE[DIR_COUNT] = {0, -1, 1, 2};
+// Order to try the passages in, as quarter turns right of the heading: right, left, forward, back
+static const int8_t PREFERENCE[DIR_COUNT] = {1, -1, 0, 2};
 
 static Maze_Dir relativeDir(int8_t quarter_turns_right) {
     return (Maze_Dir) ((((int) heading + quarter_turns_right) % DIR_COUNT + DIR_COUNT) % DIR_COUNT);
