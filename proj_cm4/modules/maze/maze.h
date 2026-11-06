@@ -7,6 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "distance.h"
 
 // Tremaux maze map: 60x60 cm cells, marks (0..2) on passages. NORTH = direction the car faces at the start.
 #define MAZE_SIZE    (30u)
@@ -26,7 +27,7 @@ extern "C" {
 
 // Servo travel time, then distance filter fill time
 #define MAZE_HEAD_SETTLE_MS (500u)
-#define MAZE_MEASURE_MS     (250u)
+#define MAZE_MEASURE_MS     (DISTANCE_FILL_MS)  // follows the filter size and the sensor period
 
 typedef enum { MAZE_NORTH = 0, MAZE_EAST, MAZE_SOUTH, MAZE_WEST, MAZE_DIR_NONE } Maze_Dir;
 

@@ -7,9 +7,11 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "HCSR04.h"
 
 // Distance to an obstacle in millimeters from the ultrasonic sensor on the head (HCSR04 driver),
-// filtered with a median filter. The sensor measures on its own after Distance_Start(), every 50 ms.
+// filtered with a median filter. The sensor measures on its own after Distance_Start(), every
+// DISTANCE_PERIOD_MS (set by HCSR04_PERIOD_US in HCSR04.h).
 // A measurement without an echo or out of range counts as "very far" in the median, so the result is
 // "no value" only when more than half of the last DISTANCE_FILTER_SIZE measurements have no echo.
 
@@ -20,13 +22,21 @@ extern "C" {
 // About 343 m/s at 20 C
 #define DISTANCE_SOUND_SPEED_MPS (343u)
 
-// Measurements in the median filter. Odd, from 1 (no filtering) to 15.
-#define DISTANCE_FILTER_SIZE (3u)
+// Measurements in the median filter. Odd, from 1 (no filtering) to 15. Ignores up to half of them
+// (5: two bad ones), but while moving the value is about half of them old (5: ~2 periods).
+#define DISTANCE_FILTER_SIZE (5u)
+
+// Time between two measurements
+#define DISTANCE_PERIOD_MS (HCSR04_PERIOD_US / 1000u)
+
+// Wait after Distance_Start() until the filter is full of new measurements: one period per measurement,
+// plus a margin for the echo of the last one. Use it instead of own numbers, so it follows the two above.
+#define DISTANCE_FILL_MS (DISTANCE_FILTER_SIZE * DISTANCE_PERIOD_MS + 20u)
 
 // How the filter gets the measurements, chosen in Distance_Init()
 typedef enum {
     DISTANCE_MODE_AUTO,   // in the background, in the interrupts of the sensor, nothing to call
-    DISTANCE_MODE_MANUAL  // only when Distance_Update() is called, often enough (faster than every 50 ms)
+    DISTANCE_MODE_MANUAL  // only when Distance_Update() is called, often enough (faster than every DISTANCE_PERIOD_MS)
 } Distance_Mode;
 
 // Returns false when the mode is wrong or the sensor setup in the Device Configurator is wrong (see HCSR04.h).

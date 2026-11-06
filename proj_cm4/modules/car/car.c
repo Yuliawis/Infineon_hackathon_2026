@@ -46,7 +46,7 @@
 #define DRIVE_CORRECT_MAX_MM     (200)    // larger error = reading not trusted, no correction
 #define DRIVE_SPEED_MIN          (500)    // creeping speed (too low = wheels stall). CALIBRATE on the car.
 #define DRIVE_SETTLE_MS          (100u)   // wait after stopping, while the car slides
-#define DRIVE_MEASURE_MS         (170u)   // fill the distance filter while standing (3 measurements, 50 ms each)
+#define DRIVE_MEASURE_MS         (DISTANCE_FILL_MS)  // fill the distance filter while standing
 #define DRIVE_CORRECT_TIMEOUT_MS (1500u)  // max time of one correction pass
 #define DRIVE_CORRECT_NEAR_MM    (400)  // correct only when stopping this close to the wall ahead (last cell before it)
 
