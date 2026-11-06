@@ -11,7 +11,7 @@ The window shows walls, unknown sides, the state of every cell, the Tremaux mark
 Connect before the car starts moving. Close the window or press Ctrl-C to stop.
 
     python3 tools/maze_viewer.py                         # finds the car by name
-    python3 tools/maze_viewer.py --address 00:A0:50:10:29:38
+    python3 tools/maze_viewer.py --address 00:A0:50:10:29:39
     python3 tools/maze_viewer.py --replay log.txt        # no car: replay a saved log (a UART capture works too)
     python3 tools/maze_viewer.py --log                   # also print the car's other log lines
 """
@@ -288,8 +288,8 @@ async def ble_forever(args, maze: MazeMap) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Show the maze the car explores, received over BLE.")
-    parser.add_argument("--name", default="MazeCar-T5", help="advertised car name (default: %(default)s)")
-    parser.add_argument("--address", help="connect by BLE address instead of name, e.g. 00:A0:50:10:29:38")
+    parser.add_argument("--name", default="MazeCar-T5-2", help="advertised car name (default: %(default)s)")
+    parser.add_argument("--address", help="connect by BLE address instead of name, e.g. 00:A0:50:10:29:39")
     parser.add_argument("--scan-timeout", type=float, default=10.0, help="seconds per scan attempt")
     parser.add_argument("--replay", metavar="FILE", help="read the map events from a text file instead of BLE")
     parser.add_argument("--log", action="store_true", help="also print the car's other log lines")

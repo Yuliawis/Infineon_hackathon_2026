@@ -37,8 +37,8 @@ same ones to `make program`, e.g. `make program BLE_LOG=0`):
 | `RETARGET_CORE=CM4` / `CM0P` / empty | `CM4` | core that owns the USB debug UART; empty = no UART log |
 
 ```bash
-python3 tools/ble_serial.py                               # finds the car by name (MazeCar-T5)
-python3 tools/ble_serial.py --address 00:A0:50:10:29:38   # or by address
+python3 tools/ble_serial.py                               # finds the car by name (MazeCar-T5-2)
+python3 tools/ble_serial.py --address 00:A0:50:10:29:39   # or by address
 python3 tools/ble_serial.py --ui                          # telemetry window: values, compass, plots
 python3 tools/ble_serial.py --ui --window 30              # plots show the last 30 s (0 = whole run)
 python3 tools/ble_serial.py --ui --replay log.txt         # no car: show a saved log
@@ -54,7 +54,7 @@ The log written before you connect is kept (the first 2 KB) and sent once the sc
 
 - Do not pair the car in the system Bluetooth settings, the firmware does not support pairing.
 - The car accepts one connection at a time and stops advertising while connected. If the script keeps printing
-  `car not found`, close other apps connected to it or run `bluetoothctl disconnect 00:A0:50:10:29:38`.
+  `car not found`, close other apps connected to it or run `bluetoothctl disconnect 00:A0:50:10:29:39`.
 
 
 ## Live maze map
