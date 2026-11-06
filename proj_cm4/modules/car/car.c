@@ -202,6 +202,18 @@ static inline void runIdleHook(void) {
     }
 }
 
+static void (*drive_mode_hook)(Car_DriveMode mode) = NULL;
+
+void Car_SetDriveModeHook(void (*hook)(Car_DriveMode mode)) {
+    drive_mode_hook = hook;
+}
+
+static void reportDriveMode(Car_DriveMode mode) {
+    if (drive_mode_hook != NULL) {
+        drive_mode_hook(mode);
+    }
+}
+
 /* Turn the car in place by delta_deg degrees (positive = left, negative = right).
  * The turn is relative to the commanded heading, not to the current yaw, so errors do not accumulate.
  * Blocking: returns when the target heading is reached or after TURN_TIMEOUT_MS.
@@ -369,12 +381,16 @@ bool Car_DriveForward(uint16_t mm, uint16_t grid_mm) {
     bool full_drive = true;
     if (has_front && stop_at < 0) {
         full_drive = false;  // the wall is too close for mm: stop at the margin instead of driving on time
+        reportDriveMode(CAR_DRIVE_SHORT);
         if (front_mm <= DRIVE_SENSOR_MARGIN_MM + DRIVE_STOP_LEAD_MM) {
             return false;  // already at the margin, do not move
         }
         stop_at = DRIVE_SENSOR_MARGIN_MM;
     }
     bool use_sensor = stop_at >= 0;
+    if (full_drive) {
+        reportDriveMode(use_sensor ? CAR_DRIVE_SENSOR : CAR_DRIVE_TIMER);
+    }
     uint16_t stop_mm = use_sensor ? (uint16_t) (stop_at + (int32_t) DRIVE_STOP_LEAD_MM) : 0;
     // with the sensor the planned distance can differ from mm (snapped to a cell center)
     int32_t planned_mm = use_sensor ? (int32_t) front_mm - stop_at : (int32_t) mm;

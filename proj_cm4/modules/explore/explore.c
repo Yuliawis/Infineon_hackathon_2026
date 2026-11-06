@@ -14,6 +14,18 @@ static void setStatusLeds(uint8_t g, uint8_t r, uint8_t b) {
     Leds_Update();
 }
 
+#define LED_FLASH_MS (300u)
+
+// Drive mode from Car_DriveForward(): green = by the sensor, purple = blind on time, white = wall too close
+static void onDriveMode(Car_DriveMode mode) {
+    switch (mode) {
+        case CAR_DRIVE_SENSOR: setStatusLeds(60, 0, 0); break;
+        case CAR_DRIVE_TIMER:  setStatusLeds(0, 60, 60); break;
+        case CAR_DRIVE_SHORT:  setStatusLeds(60, 60, 60); break;
+        default: break;
+    }
+}
+
 // Hand the logs of this step to CM0+ right away: the main loop forwards at most 254 bytes per iteration,
 // and one iteration is a whole step. Map events (@R/@C/@M) must reach the viewer before the car moves on.
 static void flushLogs(void) {
@@ -66,6 +78,7 @@ bool Explore_Step(void) {
         started = true;
         DBG_PRINTF("Maze: start in %u ms\n", (unsigned) EXPLORE_START_DELAY_MS);
         Car_Wait(EXPLORE_START_DELAY_MS);
+        Car_SetDriveModeHook(onDriveMode);
         Car_ResetHeading();                    // the car stands aligned to the walls: this is heading 0
         (void) driveForward(EXPLORE_ENTRY_MM, true);  // to the center of the first cell
         Maze_Init();
@@ -93,6 +106,8 @@ bool Explore_Step(void) {
         (void) Maze_Advance(next);
     } else {
         DBG_PRINTF("Maze: wall ahead too close, the car stayed in this cell\n");
+        setStatusLeds(60, 60, 60);  // white flash: did not reach the next cell
+        Car_Wait(LED_FLASH_MS);
     }
     flushLogs();
     return true;

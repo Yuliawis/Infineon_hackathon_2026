@@ -44,6 +44,14 @@ void Car_Wait(uint32_t ms);
 // Keep it short and non-blocking, it runs inside the motor control loops. NULL = none.
 void Car_SetIdleHook(void (*hook)(void));
 
+// How Car_DriveForward() is about to drive, reported once at its start (e.g. for the status LEDs)
+typedef enum {
+    CAR_DRIVE_SENSOR,  // to the cell center, measured from the wall ahead
+    CAR_DRIVE_TIMER,   // no wall ahead within range: blind, on time
+    CAR_DRIVE_SHORT    // wall too close: only up to the margin, or not at all
+} Car_DriveMode;
+void Car_SetDriveModeHook(void (*hook)(Car_DriveMode mode));
+
 ///////////////////// SOUND API ///////////////////////////////////////////////
 void Sound_Init(void);
 void Sound_WriteTone(uint32_t freq);

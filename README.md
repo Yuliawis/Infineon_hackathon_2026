@@ -72,3 +72,15 @@ It draws walls, unmeasured sides, visited / seen cells, the Tremaux marks (orang
 title shows the link state (scanning, connected, no data yet, waiting for the run). If the viewer connected after the
 run started, it still draws what arrives and adds `(run start missed)` to the title. The viewer does not print logs by
 default. Do not run it together with `ble_serial.py`: the car accepts one connection at a time.
+
+
+## Status LEDs
+
+| Color | When |
+|---|---|
+| off | 3 s pause before the start |
+| blue | scanning the cell |
+| green | turning and driving by the sensor |
+| purple | driving on time, no wall ahead (blind) |
+| white | wall ahead too close: drives only up to the margin; stays white 300 ms if the next cell was not reached |
+| red | finished, nowhere to go |
