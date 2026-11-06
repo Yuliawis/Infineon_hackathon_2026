@@ -17,8 +17,8 @@ extern "C" {
 #define HEAD_TILT_DIRECTION 1  //If the head tilts the wrong way, change 1 to -1
 
 // Zero position correction for a crooked mount (whole degrees)
-#define HEAD_PAN_TRIM_DEG  (0)
-#define HEAD_TILT_TRIM_DEG (0)
+#define HEAD_PAN_TRIM_DEG  (-8)
+#define HEAD_TILT_TRIM_DEG (-8)
 
 // Limits in degrees. Freenove limits the tilt servo to 90..150 of its own scale, which is 0..60 here.
 #define HEAD_PAN_MIN_DEG  (-90)
