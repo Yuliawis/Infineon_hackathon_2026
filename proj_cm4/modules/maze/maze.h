@@ -29,6 +29,10 @@ extern "C" {
 #define MAZE_HEAD_SETTLE_MS (500u)
 #define MAZE_MEASURE_MS     (DISTANCE_FILL_MS)  // follows the filter size and the sensor period
 
+// 1 = every scan turns the head and measures all three sides, also in visited cells and on sides known from
+// the map (about 2 s more per step, a second chance to see a wall). 0 = only the unknown sides of new cells.
+#define MAZE_SCAN_ALWAYS (1)
+
 typedef enum { MAZE_NORTH = 0, MAZE_EAST, MAZE_SOUTH, MAZE_WEST, MAZE_DIR_NONE } Maze_Dir;
 
 ///////////////////// MAP /////////////////////////////////////////////////////
@@ -40,7 +44,8 @@ void Maze_SetWalls(bool wall_front, bool wall_left, bool wall_right);
 // Fix one side of the current cell to a wall (absolute direction), e.g. when the car could not drive there
 void Maze_MarkWall(Maze_Dir dir);
 
-// Measures only the unknown sides. Blocking.
+// Measures left, right and front with the head (all of them with MAZE_SCAN_ALWAYS, else only the unknown
+// sides of a new cell). The new readings replace what the map had. Blocking.
 void Maze_ScanCell(void);
 
 ///////////////////// TREMAUX /////////////////////////////////////////////////
