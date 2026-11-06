@@ -7,7 +7,7 @@
 // Uses maze (map and decisions), car (moves), head, distance and the LED strip (status color).
 // Needs working motion and distance sensors.
 
-#define EXPLORE_START_DELAY_MS (5000u)  // time to put the car down before it starts moving
+#define EXPLORE_START_DELAY_MS (5000u)  // from power-on to the first move (gyro calibration included)
 #define EXPLORE_CELL_MM        (600u)   // cell size
 #define EXPLORE_ENTRY_MM       (300u)   // from the start position to the center of the first cell. CALIBRATE.
 

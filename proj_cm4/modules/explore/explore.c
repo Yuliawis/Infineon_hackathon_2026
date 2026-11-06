@@ -77,11 +77,17 @@ bool Explore_Step(void) {
 
     if (!started) {
         started = true;
-        DBG_PRINTF("Maze: start in %u ms\n", (unsigned) EXPLORE_START_DELAY_MS);
-        Car_Wait(EXPLORE_START_DELAY_MS);
+        // Look ahead now, so the head settles and the distance filter fills during the delay, not after it
+        Head_Look(0, 0);
+        // The delay counts from power-on (Timing_Init), so the gyro calibration is part of it, not added to it
+        uint32_t now_ms = Timing_GetMilliseconds();
+        uint32_t wait_ms = (now_ms < EXPLORE_START_DELAY_MS) ? EXPLORE_START_DELAY_MS - now_ms : 0u;
+        DBG_PRINTF("Maze: start in %lu ms\n", (unsigned long) wait_ms);
+        Car_Wait(wait_ms);
         Car_SetDriveModeHook(onDriveMode);
         Car_ResetHeading();                    // the car stands aligned to the walls: this is heading 0
-        (void) driveForward(EXPLORE_ENTRY_MM, EXPLORE_ENTRY_TIME_MS, true);  // to the center of the first cell
+        // to the center of the first cell; no refresh: the filter kept measuring ahead during the delay
+        (void) driveForward(EXPLORE_ENTRY_MM, EXPLORE_ENTRY_TIME_MS, false);
         Maze_Init();
     }
 
