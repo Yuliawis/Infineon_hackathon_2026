@@ -298,22 +298,41 @@ void Car_Wait(uint32_t ms) {
 /* Front distance at which to stop, or -1 if the wall ahead can't be used as the reference.
  * grid_mm == 0: stop when mm closer than now.
  * grid_mm > 0: walls stand on a grid of grid_mm cells and the car should stop in a cell center, where the
- * wall ahead is k * grid_mm + grid_mm / 2 from the car center. Take the center nearest to "mm farther",
- * so the error of the previous drive is corrected instead of carried on. A correction of more than a quarter
- * cell means the wall is not where the grid puts it (bad reading, other layout): then just mm. */
+ * wall ahead is k * grid_mm + grid_mm / 2 from the car center. Take a center near "mm farther", so the error
+ * of the previous drive is corrected instead of carried on:
+ * - the center before that point (drive longer, the car stands short of its cell center): up to a quarter cell;
+ * - the center after it (drive shorter, the car stands past its cell center, e.g. a blind drive overshot):
+ *   up to half a cell (and at most mm / 2), so even then the next cell is reached instead of looking blocked.
+ * A wall that fits neither is not where the grid puts it (bad reading, other layout): then just mm. */
 static int32_t driveStopDistance(uint16_t front_mm, uint16_t mm, uint16_t grid_mm) {
     if (front_mm > DRIVE_SENSOR_MAX_MM) {
         return -1;
     }
     int32_t stop_mm = (int32_t) front_mm - (int32_t) mm;
-    if (grid_mm > 0u && stop_mm >= 0) {
+    if (grid_mm > 0u) {
         int32_t grid = (int32_t) grid_mm;
-        int32_t left_mm = stop_mm + DRIVE_SENSOR_OFFSET_MM;      // car center to the wall after mm
-        int32_t center_mm = (left_mm / grid) * grid + grid / 2;  // nearest k * grid + grid / 2
-        int32_t correction_mm = center_mm - left_mm;
-        if (correction_mm <= grid / 4 && correction_mm >= -grid / 4) {
-            stop_mm = center_mm - DRIVE_SENSOR_OFFSET_MM;
+        int32_t half = grid / 2;
+        int32_t left_mm = stop_mm + DRIVE_SENSOR_OFFSET_MM;  // car center to the wall after mm (may be < 0)
+        // Centers around left_mm: before = largest k * grid + half <= left_mm (none if left_mm < half),
+        // after = the next one. At most one of the two is within its limit (they are a cell apart).
+        int32_t after_mm = half;
+        if (left_mm >= half) {
+            int32_t before_mm = ((left_mm - half) / grid) * grid + half;
+            if (left_mm - before_mm <= grid / 4) {
+                after_mm = -1;
+                stop_mm = before_mm - DRIVE_SENSOR_OFFSET_MM;  // drive up to a quarter cell longer
+            } else {
+                after_mm = before_mm + grid;
+            }
         }
+        // shorter by at most half a cell, and never below half of mm (a short drive like the entry stays one)
+        int32_t shorter_max = ((int32_t) mm / 2 < half) ? (int32_t) mm / 2 : half;
+        if (after_mm > 0 && after_mm - left_mm <= shorter_max) {
+            stop_mm = after_mm - DRIVE_SENSOR_OFFSET_MM;  // drive up to half a cell shorter
+        }
+    }
+    if (stop_mm >= (int32_t) front_mm) {
+        return -1;  // nothing to drive (only possible with mm shorter than half a cell)
     }
     return (stop_mm >= (int32_t) DRIVE_SENSOR_MARGIN_MM) ? stop_mm : -1;
 }
