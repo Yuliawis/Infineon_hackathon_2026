@@ -40,7 +40,7 @@ static void printMaze(uint32_t step, Maze_Dir next) {
 
 // Drive forward. The head must look ahead and the distance filter must hold fresh front values:
 // if the head had to move or the car turned (refresh), wait for that first.
-static void driveForward(uint16_t mm, bool refresh) {
+static bool driveForward(uint16_t mm, bool refresh) {
     if (Head_GetPan() != 0) {
         Head_Look(0, 0);
         Car_Wait(MAZE_HEAD_SETTLE_MS);
@@ -50,7 +50,7 @@ static void driveForward(uint16_t mm, bool refresh) {
         Distance_Start();
         Car_Wait(MAZE_MEASURE_MS);
     }
-    Car_DriveForward(mm, EXPLORE_CELL_MM);  // stop in a cell center, measured from the wall ahead
+    return Car_DriveForward(mm, EXPLORE_CELL_MM);  // stop in a cell center, measured from the wall ahead
 }
 
 bool Explore_Step(void) {
@@ -67,7 +67,7 @@ bool Explore_Step(void) {
         DBG_PRINTF("Maze: start in %u ms\n", (unsigned) EXPLORE_START_DELAY_MS);
         Car_Wait(EXPLORE_START_DELAY_MS);
         Car_ResetHeading();                    // the car stands aligned to the walls: this is heading 0
-        driveForward(EXPLORE_ENTRY_MM, true);  // to the center of the first cell
+        (void) driveForward(EXPLORE_ENTRY_MM, true);  // to the center of the first cell
         Maze_Init();
     }
 
@@ -89,8 +89,11 @@ bool Explore_Step(void) {
     if (turn != 0) {
         Car_TurnBy(turn);
     }
-    driveForward(EXPLORE_CELL_MM, turn != 0);
-    (void) Maze_Advance(next);
+    if (driveForward(EXPLORE_CELL_MM, turn != 0)) {
+        (void) Maze_Advance(next);
+    } else {
+        DBG_PRINTF("Maze: wall ahead too close, the car stayed in this cell\n");
+    }
     flushLogs();
     return true;
 }
