@@ -13,7 +13,7 @@
 
 // Without a wall ahead the car can't measure the drive, so it drives for a fixed time. CALIBRATE on the car:
 // the time one cell takes at DRIVE_SPEED (it also sets the safety time limit of the drives with the sensor).
-#define EXPLORE_CELL_TIME_MS   (1100u)
+#define EXPLORE_CELL_TIME_MS   (1000u)
 #define EXPLORE_ENTRY_TIME_MS  (EXPLORE_CELL_TIME_MS * EXPLORE_ENTRY_MM / EXPLORE_CELL_MM)  // or set it by hand
 #define EXPLORE_PRINT_MAP      (0)      // 1 = print the maze map after each step
 #define EXPLORE_REDRAW_ANSI    (0)      // 1 = clear the terminal before each map (needs a terminal with ANSI)
