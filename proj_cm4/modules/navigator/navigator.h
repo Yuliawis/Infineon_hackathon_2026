@@ -53,6 +53,11 @@ bool Navigator_Init(void);
  * thing that happens is the gyro calibration. */
 void Navigator_Start(void);
 
+/* Same, but the car does not move before Timing_GetMilliseconds() reaches go_at_ms. Calibration and
+ * the first scan still happen right away, at a standstill, so the first movement comes exactly at
+ * go_at_ms instead of that plus however long they took. A time already past means no wait. */
+void Navigator_StartAt(uint32_t go_at_ms);
+
 /* Advance the run. Call from the main loop, last of the update calls. */
 void Navigator_Update(void);
 

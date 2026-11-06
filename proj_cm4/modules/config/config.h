@@ -330,9 +330,21 @@ extern "C" {
 /* Longest time for one complete run before the fallback behaviour starts. START. */
 #define CONFIG_RUN_TIMEOUT_MS (300000u)
 
-/* Pause between power up and the start of the run, so there is time to put the car down and get the
- * USB cable out of the way. The car does not move during it. START. */
-#define CONFIG_RUN_START_DELAY_MS (3000u)
+/* The car starts driving this long after the button (reset or power), everything included: start up,
+ * the gyro calibration and the first scan all happen inside this time. It is a moment, not a pause:
+ * whatever start up takes is not added on top. Counted from Timing_Init() in main.c, which comes a few
+ * tens of milliseconds after the reset.
+ *
+ * The car must stand still from CONFIG_RUN_START_AT_MS - CONFIG_RUN_PREPARE_MS on, because that is
+ * when the gyro gets calibrated; before that it may still be carried and put down. */
+#define CONFIG_RUN_START_AT_MS (5000u)
+
+/* How long before CONFIG_RUN_START_AT_MS the run is prepared: the gyro calibration (about 0.8 s, up
+ * to twice that when the first attempt fails) and the first scan (about 0.3 s per direction, more
+ * with retries). If that is not enough the car simply starts a little later, never earlier. */
+#define CONFIG_RUN_PREPARE_MS (2500u)
+
+_Static_assert(CONFIG_RUN_PREPARE_MS <= CONFIG_RUN_START_AT_MS, "the preparation cannot begin before power up");
 
 /* A step that does not change the front distance at all means the car is stuck against something.
  * START. */

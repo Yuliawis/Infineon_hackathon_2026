@@ -174,9 +174,17 @@ int main(void) {
      * To start the run from the phone instead, comment out these three lines: CM4_COMMAND_RUN_START
      * does the same thing, and CM4_COMMAND_RUN_STOP halts the car from a distance. */
     if (navigatorReady && motionReady) {
-        DBG_PRINTF("Run starts in %lu ms\n", (unsigned long) CONFIG_RUN_START_DELAY_MS);
-        Cy_SysLib_Delay(CONFIG_RUN_START_DELAY_MS);
-        Navigator_Start();
+        /* The car drives off at CONFIG_RUN_START_AT_MS after the button, start up included: the time
+         * start up already took is not added on top. The run is prepared (gyro calibration, first
+         * scan) in the last CONFIG_RUN_PREPARE_MS before that, at a standstill. */
+        const uint32_t prepare_at_ms = CONFIG_RUN_START_AT_MS - CONFIG_RUN_PREPARE_MS;
+        const uint32_t now_ms = Timing_GetMilliseconds();
+        DBG_PRINTF("Start up took %lu ms, driving off at %lu ms\n", (unsigned long) now_ms,
+                   (unsigned long) CONFIG_RUN_START_AT_MS);
+        if (now_ms < prepare_at_ms) {
+            Cy_SysLib_Delay(prepare_at_ms - now_ms);
+        }
+        Navigator_StartAt(CONFIG_RUN_START_AT_MS);
     }
 
     // Main loop. Your code goes here.

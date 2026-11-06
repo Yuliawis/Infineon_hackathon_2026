@@ -38,6 +38,10 @@ static bool order_given = false;
 static uint32_t run_start_ms = 0;
 static uint32_t state_start_ms = 0;
 
+/* The car does not move before this time, see Navigator_StartAt(). */
+static uint32_t go_at_ms = 0;
+static bool go_wait_logged = false;
+
 /* The action the rule chose, kept while the car drives up to the place where it can carry it out. */
 static Decide_Action pending_action = DECIDE_ACTION_FORWARD;
 
@@ -198,7 +202,22 @@ void Navigator_Start(void) {
     turn_remaining_deg = 0;
     turn_piece_running = false;
     pending_action = DECIDE_ACTION_FORWARD;
+    go_at_ms = Timing_GetMilliseconds(); /* no wait unless Navigator_StartAt() sets one */
+    go_wait_logged = false;
     enterState(NAV_STATE_CALIBRATE);
+}
+
+void Navigator_StartAt(uint32_t go_at) {
+    Navigator_Start();
+    if (Navigator_IsRunning()) {
+        go_at_ms = go_at;
+    }
+}
+
+/* True while the first movement still has to wait for go_at_ms. Wrap-safe: a time in the past,
+ * even 49 days of uptime later, reads as "already reached". */
+static bool waitingToGo(void) {
+    return (int32_t) (go_at_ms - Timing_GetMilliseconds()) > 0;
 }
 
 void Navigator_Stop(void) {
@@ -265,6 +284,16 @@ static uint16_t stepLengthMm(void) {
 /* Apply the right hand rule and send the car where it says. Takes no time at all, but it is its own
  * state so that the decision shows up in the log between the scan and the movement. */
 static void updateDecide(void) {
+    /* The first decision is the first movement, so this is where the start time is held. Everything
+     * before it, calibration and the first scan, happens at a standstill. */
+    if (waitingToGo()) {
+        if (!go_wait_logged) {
+            DBG_PRINTF("nav: ready, driving off at %lu ms\n", (unsigned long) go_at_ms);
+            go_wait_logged = true;
+        }
+        return;
+    }
+
     const Decide_Scan scan = Sense_GetScan();
     pending_action = Decide_NextAction(&scan);
 
