@@ -39,14 +39,14 @@ static void printMaze(uint32_t step, Maze_Dir next) {
 static void driveForward(uint16_t mm, bool refresh) {
     if (Head_GetPan() != 0) {
         Head_Look(0, 0);
-        Car_Wait(MAZE_HEAD_SETTLE_MS);  // Car_Wait keeps the gyro and the debug print running
+        Car_Wait(MAZE_HEAD_SETTLE_MS);
         refresh = true;
     }
     if (refresh) {
         Distance_Start();
         Car_Wait(MAZE_MEASURE_MS);
     }
-    Car_DriveForward(mm);
+    Car_DriveForward(mm, EXPLORE_CELL_MM);  // stop in a cell center, measured from the wall ahead
 }
 
 bool Explore_Step(void) {
