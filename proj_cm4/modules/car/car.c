@@ -38,7 +38,7 @@
 #define DRIVE_MM_PER_SECOND    (250u)   // car speed at DRIVE_SPEED, used without a wall ahead. CALIBRATE on the car.
 #define DRIVE_SENSOR_MAX_MM    (2000u)  // farther than this the wall ahead is not trusted as a reference
 #define DRIVE_SENSOR_MARGIN_MM (100u)   // keep at least this distance to the wall ahead
-#define DRIVE_SENSOR_OFFSET_MM (70)     // from the car center forward to the distance sensor. CALIBRATE on the car.
+#define DRIVE_SENSOR_OFFSET_MM (125)     // from the car center forward to the distance sensor. CALIBRATE on the car.
 #define DRIVE_STOP_LEAD_MM     (50u)    // stop this much early: sensor lag + coasting after stop. CALIBRATE on the car.
 #define DRIVE_SENSOR_TIME_PCT  (150u)   // sensor drive also ends after this % of its expected time (echo lost)
 // ---- Position correction after a sensor drive (measure while standing, then creep to the target) ----
