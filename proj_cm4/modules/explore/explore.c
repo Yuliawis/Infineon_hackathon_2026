@@ -2,6 +2,7 @@
 #include "explore.h"
 #include "maze.h"
 #include "car.h"
+#include "motion.h"
 #include "head.h"
 #include "distance.h"
 #include "ledctrl.h"
@@ -12,6 +13,18 @@
 static void setStatusLeds(uint8_t g, uint8_t r, uint8_t b) {
     Leds_FillSolidColor(g, r, b);
     Leds_Update();
+}
+
+#define LED_FLASH_MS (300u)
+
+// Drive mode from Car_DriveForward(): green = by the sensor, purple = blind on time, white = wall too close
+static void onDriveMode(Car_DriveMode mode) {
+    switch (mode) {
+        case CAR_DRIVE_SENSOR: setStatusLeds(60, 0, 0); break;
+        case CAR_DRIVE_TIMER:  setStatusLeds(0, 60, 60); break;
+        case CAR_DRIVE_SHORT:  setStatusLeds(60, 60, 60); break;
+        default: break;
+    }
 }
 
 // Hand the logs of this step to CM0+ right away: the main loop forwards at most 254 bytes per iteration,
@@ -40,7 +53,8 @@ static void printMaze(uint32_t step, Maze_Dir next) {
 
 // Drive forward. The head must look ahead and the distance filter must hold fresh front values:
 // if the head had to move or the car turned (refresh), wait for that first.
-static void driveForward(uint16_t mm, bool refresh) {
+// No wall seen ahead: the car drives blind for blind_ms (one cell), the next step goes on from the new cell.
+static bool driveForward(uint16_t mm, uint32_t blind_ms, bool refresh) {
     if (Head_GetPan() != 0) {
         Head_Look(0, 0);
         Car_Wait(MAZE_HEAD_SETTLE_MS);
@@ -50,7 +64,7 @@ static void driveForward(uint16_t mm, bool refresh) {
         Distance_Start();
         Car_Wait(MAZE_MEASURE_MS);
     }
-    Car_DriveForward(mm, EXPLORE_CELL_MM);  // stop in a cell center, measured from the wall ahead
+    return Car_DriveForward(mm, EXPLORE_CELL_MM, blind_ms);  // with a wall ahead: stop in a cell center
 }
 
 bool Explore_Step(void) {
@@ -64,14 +78,26 @@ bool Explore_Step(void) {
 
     if (!started) {
         started = true;
-        DBG_PRINTF("Maze: start in %u ms\n", (unsigned) EXPLORE_START_DELAY_MS);
-        Car_Wait(EXPLORE_START_DELAY_MS);
+        // Look ahead now, so the head settles and the distance filter fills during the delay, not after it
+        Head_Look(0, 0);
+        // The delay counts from power-on (Timing_Init), so the gyro calibration is part of it, not added to it
+        uint32_t now_ms = Timing_GetMilliseconds();
+        uint32_t wait_ms = (now_ms < EXPLORE_START_DELAY_MS) ? EXPLORE_START_DELAY_MS - now_ms : 0u;
+        DBG_PRINTF("Maze: start in %lu ms\n", (unsigned long) wait_ms);
+        Car_Wait(wait_ms);
+        Car_SetDriveModeHook(onDriveMode);
         Car_ResetHeading();                    // the car stands aligned to the walls: this is heading 0
-        driveForward(EXPLORE_ENTRY_MM, true);  // to the center of the first cell
+        // to the center of the first cell; no refresh: the filter kept measuring ahead during the delay
+        (void) driveForward(EXPLORE_ENTRY_MM, EXPLORE_ENTRY_TIME_MS, false);
         Maze_Init();
     }
 
     setStatusLeds(0, 0, 60);  // blue: scanning
+    int16_t heading_error = Motion_GetYawError(Car_GetHeading());
+    bool heading_fixed = Car_FixHeading(EXPLORE_HEADING_FIX_DEG);
+    if (heading_fixed) {
+        DBG_PRINTF("Maze: heading off by %d deg, fixed\n", (int) heading_error);
+    }
     Maze_ScanCell();
     flushLogs();  // the new cell goes to the laptop before the car starts moving
     Maze_Dir next = Maze_ChooseNext();
@@ -89,8 +115,16 @@ bool Explore_Step(void) {
     if (turn != 0) {
         Car_TurnBy(turn);
     }
-    driveForward(EXPLORE_CELL_MM, turn != 0);
-    (void) Maze_Advance(next);
+    // refresh after a turn or a heading fix: the front values must be taken in the new direction
+    // (a scan after the fix already measured the front last, but a visited cell may not be scanned)
+    if (driveForward(EXPLORE_CELL_MM, EXPLORE_CELL_TIME_MS, turn != 0 || heading_fixed)) {
+        (void) Maze_Advance(next);
+    } else {
+        DBG_PRINTF("Maze: wall ahead too close, the car stayed in this cell\n");
+        Maze_MarkWall(next);  // otherwise the same direction would be chosen again and again
+        setStatusLeds(60, 60, 60);  // white flash: did not reach the next cell
+        Car_Wait(LED_FLASH_MS);
+    }
     flushLogs();
     return true;
 }

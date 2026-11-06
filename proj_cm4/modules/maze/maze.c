@@ -112,6 +112,7 @@ void Maze_Init(void) {
     DBG_PRINTF("@R %u %u\n", (unsigned) pos_x, (unsigned) pos_y);
 }
 
+// The newest measurement always wins, also over walls from Maze_MarkWall() and over used passages
 void Maze_SetWalls(bool wall_front, bool wall_left, bool wall_right) {
     setEdge(pos_x, pos_y, heading, wall_front ? EDGE_WALL : EDGE_OPEN);
     setEdge(pos_x, pos_y, turnLeft(heading), wall_left ? EDGE_WALL : EDGE_OPEN);
@@ -123,6 +124,14 @@ void Maze_SetWalls(bool wall_front, bool wall_left, bool wall_right) {
     min_y = (pos_y < min_y) ? pos_y : min_y;
     max_y = (pos_y > max_y) ? pos_y : max_y;
 
+    DBG_PRINTF("@C %u %u %u\n", (unsigned) pos_x, (unsigned) pos_y, (unsigned) maze[pos_y][pos_x].edges);
+}
+
+void Maze_MarkWall(Maze_Dir dir) {
+    if (dir >= MAZE_DIR_NONE) {
+        return;
+    }
+    setEdge(pos_x, pos_y, dir, EDGE_WALL);
     DBG_PRINTF("@C %u %u %u\n", (unsigned) pos_x, (unsigned) pos_y, (unsigned) maze[pos_y][pos_x].edges);
 }
 
@@ -141,17 +150,23 @@ static bool wallAt(int8_t pan_deg, uint16_t threshold_mm) {
 }
 
 static bool wallInDir(Maze_Dir dir, int8_t pan_deg, uint16_t threshold_mm) {
+#if !MAZE_SCAN_ALWAYS
     Edge known = getEdge(pos_x, pos_y, dir);
     if (known != EDGE_UNKNOWN) {
         return known == EDGE_WALL;
     }
+#else
+    (void) dir;
+#endif
     return wallAt(pan_deg, threshold_mm);
 }
 
 void Maze_ScanCell(void) {
+#if !MAZE_SCAN_ALWAYS
     if (maze[pos_y][pos_x].visited) {
         return;
     }
+#endif
     bool left = wallInDir(turnLeft(heading), HEAD_LEFT_DEG, MAZE_SIDE_WALL_MM);
     bool right = wallInDir(turnRight(heading), HEAD_RIGHT_DEG, MAZE_SIDE_WALL_MM);
     bool front = wallInDir(heading, 0, MAZE_FRONT_WALL_MM);
@@ -159,7 +174,8 @@ void Maze_ScanCell(void) {
 }
 
 ///////////////////// TREMAUX /////////////////////////////////////////////////
-static const int8_t PREFERENCE[DIR_COUNT] = {0, -1, 1, 2};
+// Order to try the passages in, as quarter turns right of the heading: right, left, forward, back
+static const int8_t PREFERENCE[DIR_COUNT] = {1, -1, 0, 2};
 
 static Maze_Dir relativeDir(int8_t quarter_turns_right) {
     return (Maze_Dir) ((((int) heading + quarter_turns_right) % DIR_COUNT + DIR_COUNT) % DIR_COUNT);

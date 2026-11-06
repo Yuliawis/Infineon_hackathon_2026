@@ -35,11 +35,10 @@
 #define DRIVE_SPEED            (1000)  // wheel speed while driving straight
 #define DRIVE_HEADING_GAIN     (30)    // speed correction per degree of heading error
 #define DRIVE_TIMEOUT_MS       (6000u)
-#define DRIVE_MM_PER_SECOND    (250u)   // car speed at DRIVE_SPEED, used without a wall ahead. CALIBRATE on the car.
-#define DRIVE_SENSOR_MAX_MM    (2000u)  // farther than this the wall ahead is not trusted as a reference
+#define DRIVE_SENSOR_MAX_MM    (750u)  // farther than this the wall ahead is not trusted as a reference
 #define DRIVE_SENSOR_MARGIN_MM (100u)   // keep at least this distance to the wall ahead
-#define DRIVE_SENSOR_OFFSET_MM (70)     // from the car center forward to the distance sensor. CALIBRATE on the car.
-#define DRIVE_STOP_LEAD_MM     (50u)    // stop this much early: sensor lag + coasting after stop. CALIBRATE on the car.
+#define DRIVE_SENSOR_OFFSET_MM (125)     // from the car center forward to the distance sensor. CALIBRATE on the car.
+#define DRIVE_STOP_LEAD_MM     (90u)    // stop this much early: sensor lag + coasting after stop. CALIBRATE on the car.
 #define DRIVE_SENSOR_TIME_PCT  (150u)   // sensor drive also ends after this % of its expected time (echo lost)
 // ---- Position correction after a sensor drive (measure while standing, then creep to the target) ----
 #define DRIVE_MAX_CORRECTIONS    (2)      // slow passes to fix the stop position (0 = off)
@@ -47,7 +46,7 @@
 #define DRIVE_CORRECT_MAX_MM     (200)    // larger error = reading not trusted, no correction
 #define DRIVE_SPEED_MIN          (500)    // creeping speed (too low = wheels stall). CALIBRATE on the car.
 #define DRIVE_SETTLE_MS          (100u)   // wait after stopping, while the car slides
-#define DRIVE_MEASURE_MS         (170u)   // fill the distance filter while standing (3 measurements, 50 ms each)
+#define DRIVE_MEASURE_MS         (DISTANCE_FILL_MS)  // fill the distance filter while standing
 #define DRIVE_CORRECT_TIMEOUT_MS (1500u)  // max time of one correction pass
 #define DRIVE_CORRECT_NEAR_MM    (400)  // correct only when stopping this close to the wall ahead (last cell before it)
 
@@ -202,6 +201,18 @@ static inline void runIdleHook(void) {
     }
 }
 
+static void (*drive_mode_hook)(Car_DriveMode mode) = NULL;
+
+void Car_SetDriveModeHook(void (*hook)(Car_DriveMode mode)) {
+    drive_mode_hook = hook;
+}
+
+static void reportDriveMode(Car_DriveMode mode) {
+    if (drive_mode_hook != NULL) {
+        drive_mode_hook(mode);
+    }
+}
+
 /* Turn the car in place by delta_deg degrees (positive = left, negative = right).
  * The turn is relative to the commanded heading, not to the current yaw, so errors do not accumulate.
  * Blocking: returns when the target heading is reached or after TURN_TIMEOUT_MS.
@@ -284,25 +295,77 @@ void Car_Wait(uint32_t ms) {
     }
 }
 
+/* If the car points more than threshold_deg away from the commanded heading (it slid after a stop, the
+ * heading hold did not fully catch up, it touched a wall), turn back to it slowly in place.
+ * Only slow passes (TURN_SPEED_MIN) like the correction passes of Car_TurnBy(), and the learned coast time
+ * is left alone: small fixes would teach it wrong values. Returns true if it turned.
+ * The gyro itself is the reference, so this does not fix gyro drift. Blocking. */
+bool Car_FixHeading(int16_t threshold_deg) {
+    (void) Motion_Update();
+    if (abs(Motion_GetYawError(commanded_yaw)) <= threshold_deg) {
+        return false;
+    }
+    for (int pass = 0; pass <= TURN_MAX_CORRECTIONS; pass++) {
+        if (abs(Motion_GetYawError(commanded_yaw)) <= TURN_TOLERANCE_DEG) {
+            break;
+        }
+        uint32_t start = Timing_GetMilliseconds();
+        while (abs(Motion_GetYawError(commanded_yaw)) > TURN_TOLERANCE_DEG) {
+            runIdleHook();
+            if (Timing_GetMilliseconds() - start > TURN_TIMEOUT_MS) {
+                break;  // safety: the IMU is stuck or the car does not turn
+            }
+            if (!Motion_Update()) {
+                continue;  // no new sensor sample yet
+            }
+            // error > 0 means turn left: left wheels backward, right wheels forward (same as Car_TurnBy)
+            int s = (Motion_GetYawError(commanded_yaw) > 0) ? TURN_SPEED_MIN : -TURN_SPEED_MIN;
+            Motor_Move(-s, -s, s, s);
+        }
+        Motor_Move(0, 0, 0, 0);
+        Car_Wait(TURN_SETTLE_MS);  // keeps reading the gyro while the car slides to a stop
+    }
+    return true;
+}
+
 /* Front distance at which to stop, or -1 if the wall ahead can't be used as the reference.
  * grid_mm == 0: stop when mm closer than now.
  * grid_mm > 0: walls stand on a grid of grid_mm cells and the car should stop in a cell center, where the
- * wall ahead is k * grid_mm + grid_mm / 2 from the car center. Take the center nearest to "mm farther",
- * so the error of the previous drive is corrected instead of carried on. A correction of more than a quarter
- * cell means the wall is not where the grid puts it (bad reading, other layout): then just mm. */
+ * wall ahead is k * grid_mm + grid_mm / 2 from the car center. Take a center near "mm farther", so the error
+ * of the previous drive is corrected instead of carried on:
+ * - the center before that point (drive longer, the car stands short of its cell center): up to a quarter cell;
+ * - the center after it (drive shorter, the car stands past its cell center, e.g. a blind drive overshot):
+ *   up to half a cell (and at most mm / 2), so even then the next cell is reached instead of looking blocked.
+ * A wall that fits neither is not where the grid puts it (bad reading, other layout): then just mm. */
 static int32_t driveStopDistance(uint16_t front_mm, uint16_t mm, uint16_t grid_mm) {
     if (front_mm > DRIVE_SENSOR_MAX_MM) {
         return -1;
     }
     int32_t stop_mm = (int32_t) front_mm - (int32_t) mm;
-    if (grid_mm > 0u && stop_mm >= 0) {
+    if (grid_mm > 0u) {
         int32_t grid = (int32_t) grid_mm;
-        int32_t left_mm = stop_mm + DRIVE_SENSOR_OFFSET_MM;      // car center to the wall after mm
-        int32_t center_mm = (left_mm / grid) * grid + grid / 2;  // nearest k * grid + grid / 2
-        int32_t correction_mm = center_mm - left_mm;
-        if (correction_mm <= grid / 4 && correction_mm >= -grid / 4) {
-            stop_mm = center_mm - DRIVE_SENSOR_OFFSET_MM;
+        int32_t half = grid / 2;
+        int32_t left_mm = stop_mm + DRIVE_SENSOR_OFFSET_MM;  // car center to the wall after mm (may be < 0)
+        // Centers around left_mm: before = largest k * grid + half <= left_mm (none if left_mm < half),
+        // after = the next one. At most one of the two is within its limit (they are a cell apart).
+        int32_t after_mm = half;
+        if (left_mm >= half) {
+            int32_t before_mm = ((left_mm - half) / grid) * grid + half;
+            if (left_mm - before_mm <= grid / 4) {
+                after_mm = -1;
+                stop_mm = before_mm - DRIVE_SENSOR_OFFSET_MM;  // drive up to a quarter cell longer
+            } else {
+                after_mm = before_mm + grid;
+            }
         }
+        // shorter by at most half a cell, and never below half of mm (a short drive like the entry stays one)
+        int32_t shorter_max = ((int32_t) mm / 2 < half) ? (int32_t) mm / 2 : half;
+        if (after_mm > 0 && after_mm - left_mm <= shorter_max) {
+            stop_mm = after_mm - DRIVE_SENSOR_OFFSET_MM;  // drive up to half a cell shorter
+        }
+    }
+    if (stop_mm >= (int32_t) front_mm) {
+        return -1;  // nothing to drive (only possible with mm shorter than half a cell)
     }
     return (stop_mm >= (int32_t) DRIVE_SENSOR_MARGIN_MM) ? stop_mm : -1;
 }
@@ -312,8 +375,8 @@ static int32_t driveStopDistance(uint16_t front_mm, uint16_t mm, uint16_t grid_m
  * Same turning effect when driving backward, so the correction sign does not change. */
 static void driveStraight(int speed, int16_t heading) {
     int correction = Motion_GetYawError(heading) * DRIVE_HEADING_GAIN;
-    Motor_Move(speed - correction, speed + correction, speed - correction,
-               speed + correction);  // M1, M3 left; M2, M4 right
+    Motor_Move(speed - correction, speed - correction, speed + correction,
+               speed + correction);  // M1, M2 left; M3, M4 right (same as in Car_TurnBy)
 }
 
 /* After a sensor drive: measure the front distance while standing and creep forward or backward
@@ -352,25 +415,46 @@ static void driveCorrect(int32_t target_mm, int16_t heading) {
 /* Drive straight forward by about mm millimeters, holding the heading with the gyro.
  * If a wall is seen ahead (head must look forward, distance filter must be fresh), the distance to it is the
  * reference: see driveStopDistance(), the car stops DRIVE_STOP_LEAD_MM early to cover sensor lag and coasting.
- * Otherwise the time is used (DRIVE_MM_PER_SECOND).
- * With the sensor the drive still ends after DRIVE_SENSOR_TIME_PCT of the expected time, so a lost echo or a
+ * Otherwise (no echo, or the wall is farther than DRIVE_SENSOR_MAX_MM) the car drives blind for blind_ms,
+ * the time the caller measured for mm at DRIVE_SPEED.
+ * With the sensor the drive still ends after DRIVE_SENSOR_TIME_PCT of the expected time (blind_ms scaled to the
+ * planned distance), so a lost echo or a
  * wrong (too far) reading can't make the car drive on until DRIVE_TIMEOUT_MS.
  * After a sensor drive that ends near the wall (DRIVE_CORRECT_NEAR_MM) the stop position is measured while
  * standing and fixed by slow moves (driveCorrect()).
  * Restarts the distance filter then (Distance_Start()).
+ * A wall that is seen closer than mm + DRIVE_SENSOR_MARGIN_MM is never driven into: the car does not drive,
+ * only backs up (or creeps) to the cell center in front of it (driveCorrect()), and returns false.
+ * Returns true if the car drove the full mm (or to the cell center).
  * Blocking. Needs Motion_Init(), Distance_Start() and Timing_Init() before. */
-void Car_DriveForward(uint16_t mm, uint16_t grid_mm) {
+bool Car_DriveForward(uint16_t mm, uint16_t grid_mm, uint32_t blind_ms) {
+    if (mm == 0u) {
+        return true;
+    }
     uint16_t front_mm = 0;
-    int32_t stop_at = Distance_GetMm(&front_mm) ? driveStopDistance(front_mm, mm, grid_mm) : -1;
+    bool has_front = Distance_GetMm(&front_mm) && front_mm <= DRIVE_SENSOR_MAX_MM;
+    int32_t stop_at = has_front ? driveStopDistance(front_mm, mm, grid_mm) : -1;
+    if (has_front && stop_at < 0) {
+        // The wall is too close for mm: do not drive. Back up (or creep) to the cell center instead,
+        // where the wall ahead is half a cell from the car center.
+        reportDriveMode(CAR_DRIVE_SHORT);
+        int32_t center_mm = (grid_mm > 0u) ? (int32_t) grid_mm / 2 - DRIVE_SENSOR_OFFSET_MM : 0;
+        if (center_mm < (int32_t) DRIVE_SENSOR_MARGIN_MM) {
+            center_mm = DRIVE_SENSOR_MARGIN_MM;
+        }
+        driveCorrect(center_mm, commanded_yaw);
+        return false;
+    }
     bool use_sensor = stop_at >= 0;
+    reportDriveMode(use_sensor ? CAR_DRIVE_SENSOR : CAR_DRIVE_TIMER);
     uint16_t stop_mm = use_sensor ? (uint16_t) (stop_at + (int32_t) DRIVE_STOP_LEAD_MM) : 0;
     // with the sensor the planned distance can differ from mm (snapped to a cell center)
     int32_t planned_mm = use_sensor ? (int32_t) front_mm - stop_at : (int32_t) mm;
     if (planned_mm < (int32_t) mm) {
         planned_mm = (int32_t) mm;  // never a shorter time limit than for mm itself
     }
-    uint32_t duration_ms = (uint32_t) planned_mm * 1000u / DRIVE_MM_PER_SECOND;
-    uint32_t limit_ms = use_sensor ? duration_ms * DRIVE_SENSOR_TIME_PCT / 100u : duration_ms;
+    // blind: exactly blind_ms; sensor: safety limit from the time the planned distance should take
+    uint32_t limit_ms = use_sensor ? blind_ms * (uint32_t) planned_mm / mm * DRIVE_SENSOR_TIME_PCT / 100u : blind_ms;
     int16_t heading = commanded_yaw;  // absolute heading, so leftover turn error is corrected too
     uint32_t start = Timing_GetMilliseconds();
 
@@ -396,4 +480,5 @@ void Car_DriveForward(uint16_t mm, uint16_t grid_mm) {
     if (use_sensor && stop_at <= DRIVE_CORRECT_NEAR_MM) {
         driveCorrect(stop_at, heading);
     }
+    return true;
 }

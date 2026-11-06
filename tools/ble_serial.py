@@ -5,7 +5,7 @@ The firmware sends the log as Nordic UART Service (NUS) TX notifications when bu
 Reconnects automatically. Stop with Ctrl-C (or close the window with --ui).
 
     python3 tools/ble_serial.py                         # finds the car by name
-    python3 tools/ble_serial.py --address 00:A0:50:10:29:38
+    python3 tools/ble_serial.py --address 00:A0:50:10:29:39
     python3 tools/ble_serial.py --csv run1.csv          # also save telemetry lines to a CSV file
     python3 tools/ble_serial.py --ui                    # live window: current values, compass, plots
     python3 tools/ble_serial.py --ui --window 30        # plots show the last 30 s (0 = whole run)
@@ -343,8 +343,8 @@ def run_ui(store: TelemetryStore, window_s: float, start_ble: Optional[Callable[
 # ----------------------------------------------------------------------------- main
 def main() -> None:
     parser = argparse.ArgumentParser(description="Print the car's debug log received over BLE.")
-    parser.add_argument("--name", default="MazeCar-T5", help="advertised car name (default: %(default)s)")
-    parser.add_argument("--address", help="connect by BLE address instead of name, e.g. 00:A0:50:10:29:38")
+    parser.add_argument("--name", default="MazeCar-T5-2", help="advertised car name (default: %(default)s)")
+    parser.add_argument("--address", help="connect by BLE address instead of name, e.g. 00:A0:50:10:29:39")
     parser.add_argument("--scan-timeout", type=float, default=10.0, help="seconds per scan attempt")
     parser.add_argument("--csv", metavar="FILE", help="append telemetry lines to this CSV file")
     parser.add_argument("--ui", action="store_true", help="show telemetry in a window: values, compass, plots")

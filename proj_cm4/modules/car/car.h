@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <stdbool.h>
 // #include <PCA9685.h>
 
 #define MOTOR_1_DIRECTION -1  //If the direction is reversed, change 1 to -1
@@ -30,10 +31,16 @@ int16_t Car_GetHeading(void);
 // Relative to the commanded heading (not the current yaw), so turn errors do not add up.
 void Car_TurnBy(int16_t delta_deg);
 
+// If the car points more than threshold_deg away from the commanded heading, turn back to it slowly in place.
+// Returns true if it turned. Keep threshold_deg above TURN_TOLERANCE_DEG (4), the accuracy of a turn.
+bool Car_FixHeading(int16_t threshold_deg);
+
 // Blocking straight drive by about mm millimeters, heading held by the gyro, front distance used if available.
 // grid_mm > 0: walls are on a grid of grid_mm cells, with a wall ahead the car stops in the nearest cell
 // center, so drive errors do not add up. 0 = just mm.
-void Car_DriveForward(uint16_t mm, uint16_t grid_mm);
+// No wall seen ahead (no echo or too far to trust): the car drives blind for blind_ms, the time that mm takes.
+// Returns false if a wall ahead was too close for mm: then the car stopped short of it (or did not move).
+bool Car_DriveForward(uint16_t mm, uint16_t grid_mm, uint32_t blind_ms);
 
 // Wait while still reading the gyro (use instead of Cy_SysLib_Delay while moving).
 void Car_Wait(uint32_t ms);
@@ -41,6 +48,14 @@ void Car_Wait(uint32_t ms);
 // Function called on every pass of the blocking loops (Car_TurnBy, Car_DriveForward, Car_Wait).
 // Keep it short and non-blocking, it runs inside the motor control loops. NULL = none.
 void Car_SetIdleHook(void (*hook)(void));
+
+// How Car_DriveForward() is about to drive, reported once at its start (e.g. for the status LEDs)
+typedef enum {
+    CAR_DRIVE_SENSOR,  // to the cell center, measured from the wall ahead
+    CAR_DRIVE_TIMER,   // no wall ahead within range: blind, on time
+    CAR_DRIVE_SHORT    // wall too close: only up to the margin, or not at all
+} Car_DriveMode;
+void Car_SetDriveModeHook(void (*hook)(Car_DriveMode mode));
 
 ///////////////////// SOUND API ///////////////////////////////////////////////
 void Sound_Init(void);

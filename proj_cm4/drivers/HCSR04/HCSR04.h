@@ -14,8 +14,8 @@ extern "C" {
  *
  * Trig P12.6 is the output of TCPWM0 counter 7 (PWM), so the 10 us pulse is made by hardware.
  * Echo P12.7 has no TCPWM input on this chip, so it is a GPIO interrupt on both edges, and the pulse width
- * is the difference of the counter value between the edges. The driver sets the measurement period to 50 ms
- * during initialization; configure a base period of at least 40 ms.
+ * is the difference of the counter value between the edges. The driver sets the measurement period to
+ * HCSR04_PERIOD_US during initialization, the Period of the configurator below is only the base value.
  *
  * DEVICE CONFIGURATOR (design.modus), the names must match:
  * 1. Peripherals > PWM (TCPWM), block tcpwm[0].cnt[7]:
@@ -27,8 +27,16 @@ extern "C" {
  * 2. Pin P12[6]: alias ULTRA_TRIG, strong drive, connected to the PWM line above.
  * 3. Pin P12[7]: alias ULTRA_ECHO, Digital High-Z with input buffer, Interrupt trigger: Both edges. */
 
+/* Time between two measurements (Trig pulses). The echo of the farthest distance must end within it:
+ * 4 m (DISTANCE_MAX_MM) takes 23 ms, so at least HCSR04_PERIOD_MIN_US. Shorter = fresher values, but late
+ * reflections of the previous ping (maze walls) can come back as a false short echo: if they show up, go
+ * back to 40..60 ms. Without any echo the sensor holds Echo ~38 ms and ignores the next Trig: that period
+ * then just counts as "no echo". */
+#define HCSR04_PERIOD_US     (30000u)
+#define HCSR04_PERIOD_MIN_US (25000u)
+
 /* Needs cybsp_init() before. Returns false when the configuration is wrong: the clock is not a whole number
-   * of MHz, the Trig pulse is shorter than 10 us or the period is shorter than 40 ms. */
+   * of MHz or the Trig pulse is shorter than 10 us. */
 bool HCSR04_Init(void);
 
 void HCSR04_Start(void);

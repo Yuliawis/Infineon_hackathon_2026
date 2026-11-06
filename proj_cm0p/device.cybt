@@ -41,9 +41,9 @@
                                         <Field>
                                             <FieldProperties>
                                                 <Property id="Name" value="Name"/>
-                                                <Property id="Value" value="MazeCar-T5"/>
+                                                <Property id="Value" value="MazeCar-T5-2"/>
                                                 <Property id="Format" value="f_utf8s"/>
-                                                <Property id="ByteLength" value="10"/>
+                                                <Property id="ByteLength" value="12"/>
                                             </FieldProperties>
                                         </Field>
                                     </Fields>
@@ -384,10 +384,10 @@
     </Profiles>
     <GAP>
         <General>
-            <Property id="DeviceAddress" value="00A050-102938"/>
+            <Property id="DeviceAddress" value="00A050-102939"/>
             <Property id="SiliconGeneratedAddress" value="false"/>
             <Property id="MacGeneratedAddress" value="false"/>
-            <Property id="DeviceName" value="MazeCar-T5"/>
+            <Property id="DeviceName" value="MazeCar-T5-2"/>
             <Property id="Appearance" value="3266"/>
             <Property id="TxPowerLevelAdvScan" value="Pos_4"/>
             <Property id="TxPowerLevelConnection" value="Pos_4"/>

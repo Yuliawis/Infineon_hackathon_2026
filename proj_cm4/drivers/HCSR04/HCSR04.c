@@ -21,9 +21,11 @@
 
 #define MICROSECONDS_PER_SECOND (1000000u)
 
-#define TRIG_PULSE_MIN_US     (10u)
-#define PERIOD_MIN_US         (40000u)
-#define MEASUREMENT_PERIOD_US (50000u)
+#define TRIG_PULSE_MIN_US (10u)
+
+#if HCSR04_PERIOD_US < HCSR04_PERIOD_MIN_US
+#error "HCSR04_PERIOD_US is shorter than the longest echo (HCSR04_PERIOD_MIN_US)"
+#endif
 
 static uint32_t ticks_per_us = 0;
 static bool initialized = false;
@@ -102,16 +104,15 @@ static bool readTickRate(void) {
 }
 
 bool HCSR04_Init(void) {
-    /* A too short Trig pulse or a period shorter than the longest echo would give wrong results */
-    if (!readTickRate() || TIMER_CONFIG.compare0 < TRIG_PULSE_MIN_US * ticks_per_us ||
-        TIMER_CONFIG.period0 < PERIOD_MIN_US * ticks_per_us) {
+    /* A too short Trig pulse would give no measurements (the period is checked when compiling) */
+    if (!readTickRate() || TIMER_CONFIG.compare0 < TRIG_PULSE_MIN_US * ticks_per_us) {
         return false;
     }
 
     if (CY_TCPWM_SUCCESS != Cy_TCPWM_PWM_Init(TIMER_HW, TIMER_NUM, &TIMER_CONFIG)) {
         return false;
     }
-    Cy_TCPWM_PWM_SetPeriod0(TIMER_HW, TIMER_NUM, MEASUREMENT_PERIOD_US * ticks_per_us - 1u);
+    Cy_TCPWM_PWM_SetPeriod0(TIMER_HW, TIMER_NUM, HCSR04_PERIOD_US * ticks_per_us - 1u);
     Cy_TCPWM_Enable_Multiple(TIMER_HW, TIMER_MASK);
 
     /* The pins are configured by cybsp_init(), the Echo interrupt stays off until HCSR04_Start() */
