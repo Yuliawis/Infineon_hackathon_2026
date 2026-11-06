@@ -2,6 +2,7 @@
 #include "explore.h"
 #include "maze.h"
 #include "car.h"
+#include "motion.h"
 #include "head.h"
 #include "distance.h"
 #include "ledctrl.h"
@@ -92,6 +93,11 @@ bool Explore_Step(void) {
     }
 
     setStatusLeds(0, 0, 60);  // blue: scanning
+    int16_t heading_error = Motion_GetYawError(Car_GetHeading());
+    bool heading_fixed = Car_FixHeading(EXPLORE_HEADING_FIX_DEG);
+    if (heading_fixed) {
+        DBG_PRINTF("Maze: heading off by %d deg, fixed\n", (int) heading_error);
+    }
     Maze_ScanCell();
     flushLogs();  // the new cell goes to the laptop before the car starts moving
     Maze_Dir next = Maze_ChooseNext();
@@ -109,7 +115,9 @@ bool Explore_Step(void) {
     if (turn != 0) {
         Car_TurnBy(turn);
     }
-    if (driveForward(EXPLORE_CELL_MM, EXPLORE_CELL_TIME_MS, turn != 0)) {
+    // refresh after a turn or a heading fix: the front values must be taken in the new direction
+    // (a scan after the fix already measured the front last, but a visited cell may not be scanned)
+    if (driveForward(EXPLORE_CELL_MM, EXPLORE_CELL_TIME_MS, turn != 0 || heading_fixed)) {
         (void) Maze_Advance(next);
     } else {
         DBG_PRINTF("Maze: wall ahead too close, the car stayed in this cell\n");

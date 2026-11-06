@@ -35,10 +35,10 @@
 #define DRIVE_SPEED            (1000)  // wheel speed while driving straight
 #define DRIVE_HEADING_GAIN     (30)    // speed correction per degree of heading error
 #define DRIVE_TIMEOUT_MS       (6000u)
-#define DRIVE_SENSOR_MAX_MM    (1000u)  // farther than this the wall ahead is not trusted as a reference
+#define DRIVE_SENSOR_MAX_MM    (750u)  // farther than this the wall ahead is not trusted as a reference
 #define DRIVE_SENSOR_MARGIN_MM (100u)   // keep at least this distance to the wall ahead
 #define DRIVE_SENSOR_OFFSET_MM (125)     // from the car center forward to the distance sensor. CALIBRATE on the car.
-#define DRIVE_STOP_LEAD_MM     (75u)    // stop this much early: sensor lag + coasting after stop. CALIBRATE on the car.
+#define DRIVE_STOP_LEAD_MM     (90u)    // stop this much early: sensor lag + coasting after stop. CALIBRATE on the car.
 #define DRIVE_SENSOR_TIME_PCT  (150u)   // sensor drive also ends after this % of its expected time (echo lost)
 // ---- Position correction after a sensor drive (measure while standing, then creep to the target) ----
 #define DRIVE_MAX_CORRECTIONS    (2)      // slow passes to fix the stop position (0 = off)
@@ -293,6 +293,39 @@ void Car_Wait(uint32_t ms) {
         (void) Motion_Update();
         runIdleHook();
     }
+}
+
+/* If the car points more than threshold_deg away from the commanded heading (it slid after a stop, the
+ * heading hold did not fully catch up, it touched a wall), turn back to it slowly in place.
+ * Only slow passes (TURN_SPEED_MIN) like the correction passes of Car_TurnBy(), and the learned coast time
+ * is left alone: small fixes would teach it wrong values. Returns true if it turned.
+ * The gyro itself is the reference, so this does not fix gyro drift. Blocking. */
+bool Car_FixHeading(int16_t threshold_deg) {
+    (void) Motion_Update();
+    if (abs(Motion_GetYawError(commanded_yaw)) <= threshold_deg) {
+        return false;
+    }
+    for (int pass = 0; pass <= TURN_MAX_CORRECTIONS; pass++) {
+        if (abs(Motion_GetYawError(commanded_yaw)) <= TURN_TOLERANCE_DEG) {
+            break;
+        }
+        uint32_t start = Timing_GetMilliseconds();
+        while (abs(Motion_GetYawError(commanded_yaw)) > TURN_TOLERANCE_DEG) {
+            runIdleHook();
+            if (Timing_GetMilliseconds() - start > TURN_TIMEOUT_MS) {
+                break;  // safety: the IMU is stuck or the car does not turn
+            }
+            if (!Motion_Update()) {
+                continue;  // no new sensor sample yet
+            }
+            // error > 0 means turn left: left wheels backward, right wheels forward (same as Car_TurnBy)
+            int s = (Motion_GetYawError(commanded_yaw) > 0) ? TURN_SPEED_MIN : -TURN_SPEED_MIN;
+            Motor_Move(-s, -s, s, s);
+        }
+        Motor_Move(0, 0, 0, 0);
+        Car_Wait(TURN_SETTLE_MS);  // keeps reading the gyro while the car slides to a stop
+    }
+    return true;
 }
 
 /* Front distance at which to stop, or -1 if the wall ahead can't be used as the reference.

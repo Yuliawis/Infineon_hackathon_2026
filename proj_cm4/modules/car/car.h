@@ -31,6 +31,10 @@ int16_t Car_GetHeading(void);
 // Relative to the commanded heading (not the current yaw), so turn errors do not add up.
 void Car_TurnBy(int16_t delta_deg);
 
+// If the car points more than threshold_deg away from the commanded heading, turn back to it slowly in place.
+// Returns true if it turned. Keep threshold_deg above TURN_TOLERANCE_DEG (4), the accuracy of a turn.
+bool Car_FixHeading(int16_t threshold_deg);
+
 // Blocking straight drive by about mm millimeters, heading held by the gyro, front distance used if available.
 // grid_mm > 0: walls are on a grid of grid_mm cells, with a wall ahead the car stops in the nearest cell
 // center, so drive errors do not add up. 0 = just mm.
