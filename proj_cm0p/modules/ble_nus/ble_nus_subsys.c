@@ -47,7 +47,7 @@ const char* carsay = "Wroom!";
 // ----------------------- Variables END -----------------------
 
 static void processIncomingIPCMessage(ipc_msg_t* msg);
-static void processCM0Command(uint8_t cmd);
+static void processCM0Command(ipc_msg_t* msg);
 
 // NvicMux0/1 are reserved (ROM calls, IPC pipe); mux must be < 8 to wake from Deep Sleep.
 static const cy_stc_sysint_t blessIsrCfg = {
@@ -74,10 +74,48 @@ cy_en_ble_api_result_t sendDataNotificationNUS(uint8_t* data, uint16_t len) {
         err = Cy_BLE_GATTS_SendNotification(&appConnHandle, &notifyValPair);
     }
 
-    DBG_PRINTF("sendDataNotificationNUS %X\r\n", err);
+    DBG_PRINTF("sendDataNotificationNUS %X\n", err);
 
     return err;
 }
+
+#if defined(BLE_LOG_ENABLED)
+// Send buffered log text (from both cores) as NUS TX notifications, one chunk per call.
+// Must not log anything itself: every log line would cause another notification.
+static void drainBleLog(void) {
+    // Static: keep the data valid after SendNotification returns
+    static uint8_t chunk[64];
+
+    if (Debug_BleLogUsed() == 0u) {
+        return;
+    }
+    if (!isSubscribedToNtf) {
+        // Nobody is listening: keep the text, so the boot log is sent after connecting.
+        // When the FIFO is full, new text is rejected, so the oldest 2 KB stay.
+        return;
+    }
+    if (Cy_BLE_GATT_GetBusyStatus(appConnHandle.attId) != CY_BLE_STACK_STATE_FREE) {
+        // Stack TX buffers are full; try again on a later loop iteration
+        return;
+    }
+
+    // Notification payload is MTU minus 3 bytes of ATT header
+    size_t maxLen = (size_t) mtu_val - 3u;
+    if (maxLen > sizeof(chunk)) {
+        maxLen = sizeof(chunk);
+    }
+
+    size_t n = Debug_BleLogPeek(chunk, maxLen);
+    cy_stc_ble_gatt_handle_value_pair_t pair = {
+            .attrHandle = CY_BLE_NUS_UART_NUS_TX_CHAR_HANDLE,
+            .value = {.val = chunk, .len = (uint16_t) n, .actualLen = (uint16_t) n},
+    };
+    // Remove from the FIFO only after the stack accepted it, so nothing is lost while busy
+    if (Cy_BLE_GATTS_SendNotification(&appConnHandle, &pair) == CY_BLE_SUCCESS) {
+        Debug_BleLogDrop(n);
+    }
+}
+#endif
 
 static void parseIncomingBLECommand(uint8_t* val, uint16 len) {
     enum blePayloadTypes payloadType = val[0];
@@ -86,18 +124,23 @@ static void parseIncomingBLECommand(uint8_t* val, uint16 len) {
         case BLE_NUS_PAYLOAD_CM0_CMD: {
             // Not implemented
             // For example, here you can configure CM0P core without routing messages to CM4
-            DBG_PRINTF("CM0 CMD\r\n");
+            DBG_PRINTF("CM0 CMD\n");
             break;
         }
         case BLE_NUS_PAYLOAD_CM4_CMD: {
             // Command will be routed to CM4
-            DBG_PRINTF("CM4 CMD\r\n");
-            ipcMsgForCM4.userCode = IPC_USR_CODE_CMD;
-            // We don't send the first byte because it is intended only for CM0P core!
-            ipcMsgForCM4.len = len - 1;
-            memcpy(&ipcMsgForCM4.buffer[0], &val[1], ipcMsgForCM4.len);
+            DBG_PRINTF("CM4 CMD\n");
+            // Only touch the IPC buffer when the previous message has been released by CM4
             if (CM0_IsCM4Ready()) {
-                CM0_SendCM4Message(&ipcMsgForCM4);
+                ipcMsgForCM4.userCode = IPC_USR_CODE_CMD;
+                // We don't send the first byte because it is intended only for CM0P core!
+                ipcMsgForCM4.len = len - 1;
+                memcpy(&ipcMsgForCM4.buffer[0], &val[1], ipcMsgForCM4.len);
+                if (!CM0_SendCM4Message(&ipcMsgForCM4)) {
+                    DBG_PRINTF("IPC send to CM4 failed, command dropped\n");
+                }
+            } else {
+                DBG_PRINTF("CM4 busy, command dropped\n");
             }
             break;
         }
@@ -128,14 +171,14 @@ static void AppCallBack(uint32_t event, void* eventParam) {
         *                       General Events
         ***********************************************************/
         case CY_BLE_EVT_STACK_ON: /* This event is received when the component is Started */
-            DBG_PRINTF("CY_BLE_EVT_STACK_ON, StartAdvertisement \r\n");
+            DBG_PRINTF("CY_BLE_EVT_STACK_ON, StartAdvertisement \n");
 
             /* Enter into discoverable mode so that remote can find it. */
             apiResult =
                     Cy_BLE_GAPP_StartAdvertisement(CY_BLE_ADVERTISING_FAST, CY_BLE_PERIPHERAL_CONFIGURATION_0_INDEX);
 
             if (apiResult != CY_BLE_SUCCESS) {
-                DBG_PRINTF("Cy_BLE_GAPP_StartAdvertisement API Error: 0x%x \r\n", apiResult);
+                DBG_PRINTF("Cy_BLE_GAPP_StartAdvertisement API Error: 0x%x \n", apiResult);
             }
             DBG_PRINTF("Cy_BLE_GAPP_StartAdvertisement OK!\n");
 
@@ -143,7 +186,7 @@ static void AppCallBack(uint32_t event, void* eventParam) {
             // Unused for simplicity.
             apiResult = Cy_BLE_GAP_GenerateKeys(&keyInfo);
             if (apiResult != CY_BLE_SUCCESS) {
-                DBG_PRINTF("Cy_BLE_GAP_GenerateKeys API Error: 0x%x \r\n", apiResult);
+                DBG_PRINTF("Cy_BLE_GAP_GenerateKeys API Error: 0x%x \n", apiResult);
             }
             DBG_PRINTF("Cy_BLE_GAP_GenerateKeys OK!\n");
 
@@ -156,12 +199,12 @@ static void AppCallBack(uint32_t event, void* eventParam) {
                            ((cy_stc_ble_bd_addrs_t*) ((cy_stc_ble_events_param_generic_t*) eventParam)->eventParams)
                                    ->publicBdAddr[i - 1]);
             }
-            DBG_PRINTF("\r\n");
+            DBG_PRINTF("\n");
 
             break;
 
         case CY_BLE_EVT_GAP_DEVICE_DISCONNECTED:
-            DBG_PRINTF("CY_BLE_EVT_GAP_DEVICE_DISCONNECTED: bdHandle=%x, reason=%x, status=%x\r\n",
+            DBG_PRINTF("CY_BLE_EVT_GAP_DEVICE_DISCONNECTED: bdHandle=%x, reason=%x, status=%x\n",
                        (*(cy_stc_ble_gap_disconnect_param_t*) eventParam).bdHandle,
                        (*(cy_stc_ble_gap_disconnect_param_t*) eventParam).reason,
                        (*(cy_stc_ble_gap_disconnect_param_t*) eventParam).status);
@@ -173,7 +216,7 @@ static void AppCallBack(uint32_t event, void* eventParam) {
             apiResult =
                     Cy_BLE_GAPP_StartAdvertisement(CY_BLE_ADVERTISING_FAST, CY_BLE_PERIPHERAL_CONFIGURATION_0_INDEX);
             if (apiResult != CY_BLE_SUCCESS) {
-                DBG_PRINTF("StartAdvertisement API Error: 0x%x \r\n", apiResult);
+                DBG_PRINTF("StartAdvertisement API Error: 0x%x \n", apiResult);
             }
             break;
 
@@ -184,12 +227,12 @@ static void AppCallBack(uint32_t event, void* eventParam) {
             appConnHandle = *(cy_stc_ble_conn_handle_t*) eventParam;
             // Centrals may never request an MTU exchange (typical on Android), so start from the spec default
             mtu_val = CY_BLE_GATT_DEFAULT_MTU;
-            DBG_PRINTF("CY_BLE_EVT_GATT_CONNECT_IND: %x, %x \r\n", (*(cy_stc_ble_conn_handle_t*) eventParam).attId,
+            DBG_PRINTF("CY_BLE_EVT_GATT_CONNECT_IND: %x, %x \n", (*(cy_stc_ble_conn_handle_t*) eventParam).attId,
                        (*(cy_stc_ble_conn_handle_t*) eventParam).bdHandle);
             break;
 
         case CY_BLE_EVT_GATT_DISCONNECT_IND:
-            DBG_PRINTF("CY_BLE_EVT_GATT_DISCONNECT_IND: %x, %x \r\n", (*(cy_stc_ble_conn_handle_t*) eventParam).attId,
+            DBG_PRINTF("CY_BLE_EVT_GATT_DISCONNECT_IND: %x, %x \n", (*(cy_stc_ble_conn_handle_t*) eventParam).attId,
                        (*(cy_stc_ble_conn_handle_t*) eventParam).bdHandle);
             break;
 
@@ -204,7 +247,7 @@ static void AppCallBack(uint32_t event, void* eventParam) {
 
             mtu_val = mtu.mtu;
 
-            DBG_PRINTF("CY_BLE_EVT_GATTS_XCNHG_MTU_REQ %x, %x, final mtu= %d \r\n", mtu.connHandle.attId,
+            DBG_PRINTF("CY_BLE_EVT_GATTS_XCNHG_MTU_REQ %x, %x, final mtu= %d \n", mtu.connHandle.attId,
                        mtu.connHandle.bdHandle, mtu.mtu);
         } break;
 
@@ -214,7 +257,7 @@ static void AppCallBack(uint32_t event, void* eventParam) {
             * This event could be ignored by application unless it need to response
             * by error response which needs to be set in gattErrorCode field of
             * event parameter. */
-            DBG_PRINTF("CY_BLE_EVT_GATTS_READ_CHAR_VAL_ACCESS_REQ: handle: %x \r\n",
+            DBG_PRINTF("CY_BLE_EVT_GATTS_READ_CHAR_VAL_ACCESS_REQ: handle: %x \n",
                        ((cy_stc_ble_gatts_char_val_read_req_t*) eventParam)->attrHandle);
             break;
 
@@ -224,8 +267,8 @@ static void AppCallBack(uint32_t event, void* eventParam) {
             // Store and cast it just for the ease of use
             writeReqParam = (cy_stc_ble_gatts_write_cmd_req_param_t*) eventParam;
 
-            DBG_PRINTF("CY_BLE_EVT_GATTS_WRITE_REQ: handle: %d \r\n", writeReqParam->handleValPair.attrHandle);
-            DBG_PRINTF("Req len: %d\r\n", writeReqParam->handleValPair.value.len);
+            DBG_PRINTF("CY_BLE_EVT_GATTS_WRITE_REQ: handle: %d \n", writeReqParam->handleValPair.attrHandle);
+            DBG_PRINTF("Req len: %d\n", writeReqParam->handleValPair.value.len);
 
             // Separately check whether someone is trying to modify CCCD. This is Notification-related descriptor.
             // See BLE_config.h to find the definitions.
@@ -236,13 +279,13 @@ static void AppCallBack(uint32_t event, void* eventParam) {
                 // In that case, Central will always sent 2 bytes. First would be either 0u or 1u. 1u => Subscribed
                 isSubscribedToNtf = !!(writeReqParam->handleValPair.value.val[0]);
 
-                DBG_PRINTF("NEW NTF STATUS: 0x%X\r\n", isSubscribedToNtf);
-            } else {
+                DBG_PRINTF("NEW NTF STATUS: 0x%X\n", isSubscribedToNtf);
+            } else if (writeReqParam->handleValPair.attrHandle == CY_BLE_NUS_UART_NUS_RX_CHAR_HANDLE) {
 // Do not waste cycles if not in debug mode
 #if DEBUG_UART_ENABLED == 1
                 // Debug-display message/data
                 for (uint16_t i = 0; i < writeReqParam->handleValPair.value.len; i++) {
-                    DBG_PRINTF("%X/%c\r\n", writeReqParam->handleValPair.value.val[i],
+                    DBG_PRINTF("%X/%c\n", writeReqParam->handleValPair.value.val[i],
                                writeReqParam->handleValPair.value.val[i]);
                 }
 #endif
@@ -258,7 +301,11 @@ static void AppCallBack(uint32_t event, void* eventParam) {
             }
             break;
 
-        default: DBG_PRINTF("Other event: 0x%X \r\n", event); break;
+        // Fires whenever the TX buffers fill up or drain. Not logged: with BLE logging,
+        // that log line would itself be sent and keep the stack busy.
+        case CY_BLE_EVT_STACK_BUSY_STATUS: break;
+
+        default: DBG_PRINTF("Other event: 0x%lX \n", (unsigned long) event); break;
     }
 }
 
@@ -299,6 +346,11 @@ void BLE_NUS_Init(void) {
             processIncomingIPCMessage(CM0_GetCM4Message());
         }
 
+#if defined(BLE_LOG_ENABLED)
+        // Mirror debug logs to the connected Central
+        drainBleLog();
+#endif
+
         // Mostly you don't want more code here!
     }
 }
@@ -314,7 +366,7 @@ static void processIncomingIPCMessage(ipc_msg_t* msg) {
                     // Only [0] element was used for simplicity.
                     // IDEA: You could expand it to accept strings or more complex data packets!
                     // You can define array of strings and perform memcmp. This operation is a bit more costful.
-                    processCM0Command(msg->buffer[0]);
+                    processCM0Command(msg);
                     break;
                 }
                 case IPC_USR_CODE_REQ: {
@@ -327,16 +379,17 @@ static void processIncomingIPCMessage(ipc_msg_t* msg) {
     }
 }
 
-static void processCM0Command(uint8_t cmd) {
-    switch (cmd) {
+// msg->buffer[0] is the command, msg->buffer[1..len-1] are its parameters.
+static void processCM0Command(ipc_msg_t* msg) {
+    switch (msg->buffer[0]) {
         case CM0_SHARED_BLE_NTF_RELAY: {
-            DBG_PRINTF("Relay\r\n");
-            sendDataNotificationNUS(&CM0_GetCM4Message()->buffer[1], CM0_GetCM4Message()->len - 1);
+            DBG_PRINTF("Relay\n");
+            sendDataNotificationNUS(&msg->buffer[1], msg->len - 1);
             break;
         }
         case CM0_SHARED_CAR_SAY: {
-            DBG_PRINTF("Car Say\r\n");
-            sendDataNotificationNUS((uint8_t*) carsay, strlen(carsay) - 1);
+            DBG_PRINTF("Car Say\n");
+            sendDataNotificationNUS((uint8_t*) carsay, strlen(carsay));
             break;
         }
         default: break;

@@ -66,10 +66,34 @@ static int16_t nav_heading_deg = 0;
  * put the car at the far side of the opening, turning into the corner. */
 static uint16_t past_edge_mm = 0;
 
+/* True only while past_edge_mm comes from a measurement: a step that ended because the right wall
+ * went away, so odometry recorded the crossing of the edge itself.
+ *
+ * In the other two places the number is filled in from constants, which say nothing about where the
+ * edge of this opening is. Driving the 130 mm constant added 180 mm of travel to a car that already
+ * stood near the middle of its cell, which is more than the 150 mm of room it has before its side
+ * reaches the far wall of the new corridor. That is the wall it kept scraping. */
+static bool past_edge_valid = false;
+
 /* Lining up with the grid heading before a scan, see alignToGrid(). Reset on every state change, so
  * each state gets exactly one attempt and a car that cannot line up still carries on. */
 static bool align_running = false;
 static bool align_done = false;
+
+/* DIAGNOSTIC, temporary. Right after a turn to the right and before driving into the new corridor,
+ * the head looks left and right and the two distances go into the log. They say where the car really
+ * stands in the corridor it just turned into, which no amount of arithmetic about beam width, filter
+ * lag and sensor offset can settle. Costs about 0.6 s per right turn and changes nothing about where
+ * the car drives. See updateSettle(). */
+typedef enum {
+    PROBE_LEFT_START = 0,
+    PROBE_LEFT_WAIT,
+    PROBE_RIGHT_START,
+    PROBE_RIGHT_WAIT,
+    PROBE_DONE
+} Settle_Probe;
+
+static Settle_Probe settle_probe = PROBE_LEFT_START;
 
 static const char* const state_names[NAV_STATE_COUNT] = {
         [NAV_STATE_IDLE] = "idle",
@@ -108,6 +132,7 @@ static void enterState(Nav_State next) {
     order_given = false;
     align_running = false;
     align_done = false;
+    settle_probe = PROBE_LEFT_START;
     state_start_ms = Timing_GetMilliseconds();
     DBG_PRINTF("nav: %s\n", Navigator_StateName(next));
 }
@@ -169,6 +194,7 @@ void Navigator_Start(void) {
     turn_sum_deg = 0;
     nav_heading_deg = 0;
     past_edge_mm = 0;
+    past_edge_valid = false;
     turn_remaining_deg = 0;
     turn_piece_running = false;
     pending_action = DECIDE_ACTION_FORWARD;
@@ -242,8 +268,28 @@ static void updateDecide(void) {
     const Decide_Scan scan = Sense_GetScan();
     pending_action = Decide_NextAction(&scan);
 
-    DBG_PRINTF("nav: L=%s F=%s R=%s -> %s\n", Sense_StateName(scan.left), Sense_StateName(scan.front),
-               Sense_StateName(scan.right), Decide_ActionName(pending_action));
+    /* The whole decision on one line: every side with its reading, and the action the rule picked.
+     * A direction the lazy scan never looked at shows "--" instead of a number, so a missing
+     * measurement is never mistaken for a measured zero. */
+    const Sense_Result* const result = Sense_GetResult();
+    DBG_PRINTF("nav: decided %s | right %s", Decide_ActionName(pending_action), Sense_StateName(scan.right));
+    if (result->measured[SENSE_DIR_RIGHT]) {
+        DBG_PRINTF(" %u mm", (unsigned) result->distance_mm[SENSE_DIR_RIGHT]);
+    } else {
+        DBG_PRINTF(" --");
+    }
+    DBG_PRINTF(" | front %s", Sense_StateName(scan.front));
+    if (result->measured[SENSE_DIR_FRONT]) {
+        DBG_PRINTF(" %u mm", (unsigned) result->distance_mm[SENSE_DIR_FRONT]);
+    } else {
+        DBG_PRINTF(" --");
+    }
+    DBG_PRINTF(" | left %s", Sense_StateName(scan.left));
+    if (result->measured[SENSE_DIR_LEFT]) {
+        DBG_PRINTF(" %u mm\n", (unsigned) result->distance_mm[SENSE_DIR_LEFT]);
+    } else {
+        DBG_PRINTF(" --\n");
+    }
 
     if (pending_action == DECIDE_ACTION_FORWARD) {
         enterState(NAV_STATE_STEP);
@@ -279,6 +325,10 @@ static void updateStep(void) {
     /* The filter keeps reporting the wall for a while after the real edge (CONFIG_OPENING_LAG_MM),
      * and the car slides on after the motors are cut. */
     past_edge_mm = (uint16_t) (Drive_GetMmSinceWallSeen() + CONFIG_OPENING_LAG_MM + CONFIG_STOP_SLIDE_MM);
+
+    /* Only the wall going away locates an edge. A step that simply ran out of length ends with the
+     * wall still beside the car and the sensor nowhere near an edge. */
+    past_edge_valid = (Drive_GetEndReason() == DRIVE_END_WALL_LOST);
 
     switch (Drive_GetEndReason()) {
         case DRIVE_END_WALL_LOST: enterState(NAV_STATE_CONFIRM); break;
@@ -341,9 +391,20 @@ static void updateApproach(void) {
             /* Into an opening on the right. The distance is what matters here, because the opening
              * is beside the car and nothing can be measured about it while driving past. The front
              * wall only serves as a floor, so the car does not run into it on the way. */
-            /* What is left to the middle of the opening, less the slide at the end of this approach. */
-            const int travel_mm = OPENING_CENTER_FROM_EDGE_MM - (int) past_edge_mm - CONFIG_STOP_SLIDE_MM;
-            DBG_PRINTF("nav: %u mm past the edge, %d mm to the middle\n", (unsigned) past_edge_mm, travel_mm);
+            /* What is left to the middle of the opening, less the slide at the end of this approach.
+             * Only when an edge was actually located: with no measured edge there is nothing to
+             * drive towards, so the turn is taken where the car stands, which after entering a
+             * corridor is about the middle of its cell anyway. */
+            const int travel_mm =
+                    past_edge_valid ? (OPENING_CENTER_FROM_EDGE_MM - (int) past_edge_mm - CONFIG_STOP_SLIDE_MM)
+                                    : CONFIG_TURN_NUDGE_MM;
+
+            if (past_edge_valid) {
+                DBG_PRINTF("nav: %u mm past the edge, %d mm to the middle\n", (unsigned) past_edge_mm,
+                           travel_mm);
+            } else {
+                DBG_PRINTF("nav: edge not measured, nudging %d mm before the turn\n", travel_mm);
+            }
             Drive_StartApproach(CONFIG_FRONT_MARGIN_MM, (travel_mm > 0) ? (uint16_t) travel_mm : 0u,
                                 nav_heading_deg);
         } else if (front_wall_seen) {
@@ -424,6 +485,53 @@ static void updateTurn(void) {
  * After a left turn or a half turn the right wall is right beside the car already, so a short blind
  * step with the head aimed right is enough, and the next scan gets its first direction for free. */
 static void updateSettle(void) {
+    /* DIAGNOSTIC, temporary: measure both sides before moving, see settle_probe. The car stands
+     * still throughout, and the entering move below starts only once this is finished. */
+    if (!order_given && (pending_action == DECIDE_ACTION_TURN_RIGHT) && (settle_probe != PROBE_DONE)) {
+        switch (settle_probe) {
+            case PROBE_LEFT_START: {
+                Sense_StartScanDirection(SENSE_DIR_LEFT);
+                settle_probe = PROBE_LEFT_WAIT;
+                return;
+            }
+            case PROBE_LEFT_WAIT: {
+                if (Sense_IsDone()) {
+                    settle_probe = PROBE_RIGHT_START;
+                }
+                return;
+            }
+            case PROBE_RIGHT_START: {
+                Sense_StartScanDirection(SENSE_DIR_RIGHT);
+                settle_probe = PROBE_RIGHT_WAIT;
+                return;
+            }
+            case PROBE_RIGHT_WAIT: {
+                if (!Sense_IsDone()) {
+                    return;
+                }
+
+                const Sense_Result* const probe = Sense_GetResult();
+                DBG_PRINTF("nav: after turn: left ");
+                if (probe->measured[SENSE_DIR_LEFT] && (probe->distance_mm[SENSE_DIR_LEFT] > 0u)) {
+                    DBG_PRINTF("%u mm", (unsigned) probe->distance_mm[SENSE_DIR_LEFT]);
+                } else {
+                    DBG_PRINTF("no echo");
+                }
+                DBG_PRINTF(", right ");
+                if (probe->measured[SENSE_DIR_RIGHT] && (probe->distance_mm[SENSE_DIR_RIGHT] > 0u)) {
+                    DBG_PRINTF("%u mm\n", (unsigned) probe->distance_mm[SENSE_DIR_RIGHT]);
+                } else {
+                    DBG_PRINTF("no echo\n");
+                }
+
+                settle_probe = PROBE_DONE;
+                return;
+            }
+            case PROBE_DONE:
+            default: break;
+        }
+    }
+
     if (!order_given) {
         if (pending_action == DECIDE_ACTION_TURN_RIGHT) {
             Sense_PointHead(CONFIG_HEAD_PAN_FRONT_DEG);
@@ -437,10 +545,12 @@ static void updateSettle(void) {
     }
 
     if (Drive_IsDone()) {
-        /* Just past the start of the right wall of the new corridor, or right beside it. */
+        /* Just past the start of the right wall of the new corridor, or right beside it. Constants,
+         * not a located edge, so the next right turn must not drive them. */
         past_edge_mm = (pending_action == DECIDE_ACTION_TURN_RIGHT)
                                ? (uint16_t) (CONFIG_ENTER_MARGIN_MM + CONFIG_STOP_SLIDE_MM)
                                : (uint16_t) (Drive_GetLastStepMm() + CONFIG_STOP_SLIDE_MM);
+        past_edge_valid = false;
         enterState(NAV_STATE_SCAN);
     }
 }
@@ -478,8 +588,10 @@ static void updateEscape(void) {
     }
 
     {
-        /* The wall was right there when the escape began, so the car is at most this far past it. */
+        /* The wall was right there when the escape began, so the car is at most this far past it.
+         * An upper bound, not a located edge. */
         past_edge_mm = (uint16_t) (Drive_GetLastStepMm() + CONFIG_STOP_SLIDE_MM);
+        past_edge_valid = false;
         enterState(NAV_STATE_SCAN);
     }
 }

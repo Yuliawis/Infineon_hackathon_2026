@@ -123,6 +123,16 @@ extern "C" {
  * larger if the real speed is higher. */
 #define CONFIG_OPENING_LAG_MM (25)
 
+/* How far to creep forward before turning right into an opening that was found by a standstill scan
+ * instead of by the wall going away on the move. In that case nothing located the edge of the
+ * opening, so there is no distance to compute: this is the one number that says where the turn is
+ * taken, and it is bracketed by the car itself.
+ *
+ * Measured on the car: 180 mm (what the old constant produced) turned too late and the car hit the
+ * far wall of the new corridor; 0 mm turned too early and it hit the near wall. 90 is the middle of
+ * that bracket. Raise it if the car clips the near wall, lower it if it clips the far one. START. */
+#define CONFIG_TURN_NUDGE_MM (90)
+
 /* When the right wall got dangerously close, the car drives a short way forward aimed this many
  * degrees away from the wall, then scans again. The angle is relative to the grid heading and only
  * applies to that one short move: the next step goes back to the grid heading, so the escape never
@@ -153,7 +163,7 @@ extern "C" {
 /* How often the ultrasonic driver measures. This mirrors MEASUREMENT_PERIOD_US in HCSR04.c and has
  * to be kept in step with it by hand. Used to work out how far the car travelled while the median
  * filter was catching up. */
-#define CONFIG_DISTANCE_PERIOD_MS (50)
+#define CONFIG_DISTANCE_PERIOD_MS (60)
 
 ///////////////////// MOTOR OUTPUT ////////////////////////////////////////////
 
@@ -301,6 +311,19 @@ extern "C" {
  * The task also suggests looking slightly off axis on a retry. That is an improvement for later:
  * first the log has to show how often this happens at all. START. */
 #define CONFIG_SCAN_RETRIES (2u)
+
+/* 1 = silence on the RIGHT, after every retry, counts as an opening instead of as unknown.
+ *
+ * The task says a missing echo is never an opening, and that holds for the front and the left: the
+ * beam often meets those walls at a steep angle, where an echo scatters away and silence really says
+ * nothing. The right side is different. Every scan is taken after alignToGrid(), so the right beam
+ * is square to the right wall, and a flat wall 200 to 300 mm away at a right angle is the easiest
+ * target ultrasound has. Silence from there means there is no wall within range.
+ *
+ * Measured on the car: an opening leading into a long corridor swallows the beam and returns nothing,
+ * so with silence counted as a wall the car drove past every such opening, which is most of them.
+ * Set to 0 to go back to the conservative reading. START. */
+#define CONFIG_RIGHT_SILENCE_IS_OPEN (1)
 
 ///////////////////// SAFETY //////////////////////////////////////////////////
 

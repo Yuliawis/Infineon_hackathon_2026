@@ -1,6 +1,7 @@
 #include "sense.h"
 #include "config.h"
 #include "car.h"
+#include "debug_uart.h"
 #include "distance.h"
 #include "head.h"
 #include <stddef.h>
@@ -121,6 +122,12 @@ static void beginDirection(Sense_Direction direction) {
     current_direction = direction;
     retries_left = (uint8_t) CONFIG_SCAN_RETRIES;
     phase = PHASE_AIM;
+
+    /* Logged before the command, so the line is there even if the servo never arrives. One line per
+     * direction and only at a standstill, so it cannot flood the BLE log. */
+    DBG_PRINTF("scan: head -> %s (pan %d deg)\n", direction_names[direction],
+               (int) direction_pan_deg[direction]);
+
     Sense_PointHead(direction_pan_deg[direction]);
 }
 
@@ -139,6 +146,21 @@ static void finishDirection(Decide_SideState state, uint16_t distance_mm) {
     result.distance_mm[current_direction] = distance_mm;
     result.measured[current_direction] = true;
 
+    /* The verdict together with the numbers it came from: the reading and the threshold it was
+     * compared against. Without both numbers a wrong verdict cannot be told from a wrong threshold. */
+    if (state == DECIDE_UNKNOWN) {
+        DBG_PRINTF("scan: %s = unknown, no echo after %u tries\n", direction_names[current_direction],
+                   (unsigned) CONFIG_SCAN_RETRIES + 1u);
+    } else if ((state == DECIDE_OPEN) && (distance_mm == 0u)) {
+        /* No echo at all, taken as an opening rather than as a measurement. */
+        DBG_PRINTF("scan: %s = CAN GO, silent after %u tries (nothing within range)\n",
+                   direction_names[current_direction], (unsigned) CONFIG_SCAN_RETRIES + 1u);
+    } else {
+        DBG_PRINTF("scan: %s = %s, %u mm (open above %u mm)\n", direction_names[current_direction],
+                   (state == DECIDE_OPEN) ? "CAN GO" : "wall", (unsigned) distance_mm,
+                   (unsigned) direction_open_mm[current_direction]);
+    }
+
     if (single_direction) {
         phase = PHASE_DONE;
         return;
@@ -148,6 +170,7 @@ static void finishDirection(Decide_SideState state, uint16_t distance_mm) {
      * priority order of the rule. The directions left unmeasured stay unknown, and unknown counts as
      * a wall, which is the lowest priority, so they cannot change the outcome. */
     if (CONFIG_SCAN_LAZY && (state == DECIDE_OPEN)) {
+        DBG_PRINTF("scan: %s is open, the rest is not looked at\n", direction_names[current_direction]);
         phase = PHASE_DONE;
         return;
     }
@@ -168,10 +191,20 @@ static void classifyCurrentDirection(void) {
         /* No valid echo. An ultrasonic pulse that hits a wall at a steep angle often never comes
          * back, so this is not free space and the only honest thing to do is to try again. */
         if (retries_left > 0u) {
+            DBG_PRINTF("scan: %s no echo, measuring again\n", direction_names[current_direction]);
             --retries_left;
             beginSampling();
             return;
         }
+
+        /* Silence on the right, with the beam square to the wall, means no wall is there. See
+         * CONFIG_RIGHT_SILENCE_IS_OPEN for why this one direction is treated differently.
+         * The distance is reported as zero: there is no measurement, only a verdict. */
+        if (CONFIG_RIGHT_SILENCE_IS_OPEN && (current_direction == SENSE_DIR_RIGHT)) {
+            finishDirection(DECIDE_OPEN, 0);
+            return;
+        }
+
         finishDirection(DECIDE_UNKNOWN, 0);
         return;
     }
@@ -189,6 +222,8 @@ void Sense_StartScan(void) {
         result.measured[i] = false;
     }
 
+    DBG_PRINTF("scan: stopped, looking around\n");
+
     single_direction = false;
     beginDirection(SENSE_DIR_RIGHT);
 }
@@ -203,6 +238,8 @@ void Sense_StartScanDirection(Sense_Direction direction) {
     result.state[direction] = DECIDE_UNKNOWN;
     result.distance_mm[direction] = 0;
     result.measured[direction] = false;
+
+    DBG_PRINTF("scan: one more look at %s\n", direction_names[direction]);
 
     single_direction = true;
     beginDirection(direction);

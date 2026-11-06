@@ -51,6 +51,7 @@
 #include "i2c_common.h"
 #include "debug_uart.h"
 #include "cm4_ipc.h"
+#include "cm4_cmd.h"
 
 /* The autonomous maze run. sense, drive and navigator each need their update called from the main
  * loop; config.h holds the tunables. */
@@ -67,16 +68,8 @@
 /* #define MOTION_PRINT_PERIOD_MS   (500u) */
 /* #define DISTANCE_PRINT_PERIOD_MS (500u) */
 
-ipc_msg_t ipcMsgForCM0 = {/* IPC structure to be sent to CM0 */
-                          .clientId = IPC_CM4_TO_CM0_CLIENT_ID,
-                          .userCode = 0,
-                          .intrMask = CY_SYS_CYPIPE_INTR_MASK,
-                          .buffer = {},
-                          .len = 0};
-
-// Private function declarations for handling IPC messages and CM4 commands.
-static void processIncomingIPCMessage(ipc_msg_t* msg);
-static void processCM4Command(enum cm4CommandList cmd);
+/* The IPC message buffer and the command handlers live in the cm4_cmd module, together with the BLE
+ * log forwarding that shares the same pipe to CM0+. */
 
 int main(void) {
     cy_rslt_t result;
@@ -190,8 +183,14 @@ int main(void) {
     for (;;) {
         // Check for new messages from CM0 core and process them. This is the most important task.
         if (CM4_isDataAvailableFromCM0()) {
-            processIncomingIPCMessage(CM4_GetCM0Message());
+            CM4_ProcessIncomingIPCMessage(CM4_GetCM0Message());
         }
+
+#if defined(BLE_LOG_ENABLED)
+        /* Hand whatever DBG_PRINTF buffered to CM0+, which notifies it over BLE. It sends at most one
+         * message per pass and gives up at once if CM0+ is busy, so it never stalls the loop. */
+        CM4_ForwardLogsToCM0();
+#endif
 
         /* The maze run, in this order on every single pass.
          *
@@ -265,74 +264,5 @@ int main(void) {
         */
     }
 }
-
-static void processIncomingIPCMessage(ipc_msg_t* msg) {
-    // In general, impossible situation, but never trust anyone.
-    if (msg != NULL) {
-        // Process messages with at least 1 byte of payload
-        if (msg->len > 0) {
-            // Decode message code. You would mostly like to use Commands
-            switch (msg->userCode) {
-                case IPC_USR_CODE_CMD: {
-                    // Only [0] element was used for simplicity.
-                    // IDEA: You could expand it to accept strings or more complex data packets!
-                    // You can define array of strings and perform memcmp. This operation is a bit more costful.
-                    processCM4Command((enum cm4CommandList) msg->buffer[0]);
-                    break;
-                }
-                case IPC_USR_CODE_REQ: {
-                    // Not implemented. You can be very creative here!
-                    break;
-                }
-                default: break;
-            }
-        }
-    }
-}
-
-static void processCM4Command(enum cm4CommandList cmd) {
-    switch (cmd) {
-        case CM4_COMMAND_LED_ENA: {
-            Cy_GPIO_Write(CYBSP_USER_LED_PORT, CYBSP_USER_LED_NUM, 0);
-            Cy_GPIO_Write(CYBSP_USER_LED2_PORT, CYBSP_USER_LED2_NUM, 0);
-            break;
-        }
-        case CM4_COMMAND_LED_DIS: {
-            Cy_GPIO_Write(CYBSP_USER_LED_PORT, CYBSP_USER_LED_NUM, 1);
-            Cy_GPIO_Write(CYBSP_USER_LED2_PORT, CYBSP_USER_LED2_NUM, 1);
-            break;
-        }
-        case CM4_COMMAND_CAR_SAY: {
-            if (CM4_IsCM0Ready()) {
-                ipcMsgForCM0.userCode = IPC_USR_CODE_CMD;
-                ipcMsgForCM0.len = 0x01;
-                ipcMsgForCM0.buffer[0] = (uint8_t) CM0_SHARED_CAR_SAY;
-                CM4_SendCM0Message(&ipcMsgForCM0);
-            }
-            break;
-        }
-        case CM4_COMMAND_RUN_START: {
-            Navigator_Start();
-            break;
-        }
-        case CM4_COMMAND_RUN_STOP: {
-            /* The remote kill switch: stops the motors wherever the car is. */
-            Navigator_Stop();
-            break;
-        }
-        case CM4_COMMAND_ECHO: {
-            if (CM4_IsCM0Ready()) {
-                ipcMsgForCM0.userCode = IPC_USR_CODE_CMD;
-                ipcMsgForCM0.len = CM4_GetCM0Message()->len;
-                ipcMsgForCM0.buffer[0] = (uint8_t) CM0_SHARED_BLE_NTF_RELAY;
-                memcpy(&ipcMsgForCM0.buffer[1], &CM4_GetCM0Message()->buffer[1], ipcMsgForCM0.len - 1);
-                CM4_SendCM0Message(&ipcMsgForCM0);
-            }
-            break;
-        }
-        default: break;
-    }
-}
-
 
 /* [] END OF FILE */

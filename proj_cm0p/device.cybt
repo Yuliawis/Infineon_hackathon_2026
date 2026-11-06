@@ -41,9 +41,9 @@
                                         <Field>
                                             <FieldProperties>
                                                 <Property id="Name" value="Name"/>
-                                                <Property id="Value" value="Volkswagen Polo"/>
+                                                <Property id="Value" value="MazeCar-T5"/>
                                                 <Property id="Format" value="f_utf8s"/>
-                                                <Property id="ByteLength" value="15"/>
+                                                <Property id="ByteLength" value="10"/>
                                             </FieldProperties>
                                         </Field>
                                     </Fields>
@@ -384,13 +384,13 @@
     </Profiles>
     <GAP>
         <General>
-            <Property id="DeviceAddress" value="00A050-000000"/>
+            <Property id="DeviceAddress" value="00A050-102938"/>
             <Property id="SiliconGeneratedAddress" value="false"/>
             <Property id="MacGeneratedAddress" value="false"/>
-            <Property id="DeviceName" value="Volkswagen Polo"/>
+            <Property id="DeviceName" value="MazeCar-T5"/>
             <Property id="Appearance" value="3266"/>
-            <Property id="TxPowerLevelAdvScan" value="Pos_0"/>
-            <Property id="TxPowerLevelConnection" value="Pos_0"/>
+            <Property id="TxPowerLevelAdvScan" value="Pos_4"/>
+            <Property id="TxPowerLevelConnection" value="Pos_4"/>
             <Property id="BondListSize" value="16"/>
         </General>
         <PeripheralConfigurations>
