@@ -130,7 +130,7 @@ static bool wallAt(int8_t pan_deg, uint16_t threshold_mm) {
     uint16_t mm;
     if (Head_GetPan() != pan_deg) {
         Head_Look(pan_deg, 0);
-        Car_Wait(MAZE_HEAD_SETTLE_MS);  // Car_Wait, not Cy_SysLib_Delay: keeps the gyro and the idle hook running
+        Car_Wait(MAZE_HEAD_SETTLE_MS);
     }
     Distance_Start();
     Car_Wait(MAZE_MEASURE_MS);

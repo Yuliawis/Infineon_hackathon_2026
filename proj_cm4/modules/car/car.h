@@ -31,7 +31,9 @@ int16_t Car_GetHeading(void);
 void Car_TurnBy(int16_t delta_deg);
 
 // Blocking straight drive by about mm millimeters, heading held by the gyro, front distance used if available.
-void Car_DriveForward(uint16_t mm);
+// grid_mm > 0: walls are on a grid of grid_mm cells, with a wall ahead the car stops in the nearest cell
+// center, so drive errors do not add up. 0 = just mm.
+void Car_DriveForward(uint16_t mm, uint16_t grid_mm);
 
 // Wait while still reading the gyro (use instead of Cy_SysLib_Delay while moving).
 void Car_Wait(uint32_t ms);
