@@ -36,6 +36,9 @@ void Maze_Init(void);
 // Walls are relative to the car heading
 void Maze_SetWalls(bool wall_front, bool wall_left, bool wall_right);
 
+// Fix one side of the current cell to a wall (absolute direction), e.g. when the car could not drive there
+void Maze_MarkWall(Maze_Dir dir);
+
 // Measures only the unknown sides. Blocking.
 void Maze_ScanCell(void);
 

@@ -126,6 +126,14 @@ void Maze_SetWalls(bool wall_front, bool wall_left, bool wall_right) {
     DBG_PRINTF("@C %u %u %u\n", (unsigned) pos_x, (unsigned) pos_y, (unsigned) maze[pos_y][pos_x].edges);
 }
 
+void Maze_MarkWall(Maze_Dir dir) {
+    if (dir >= MAZE_DIR_NONE) {
+        return;
+    }
+    setEdge(pos_x, pos_y, dir, EDGE_WALL);
+    DBG_PRINTF("@C %u %u %u\n", (unsigned) pos_x, (unsigned) pos_y, (unsigned) maze[pos_y][pos_x].edges);
+}
+
 static bool wallAt(int8_t pan_deg, uint16_t threshold_mm) {
     uint16_t mm;
     if (Head_GetPan() != pan_deg) {

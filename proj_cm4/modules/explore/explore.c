@@ -107,6 +107,7 @@ bool Explore_Step(void) {
         (void) Maze_Advance(next);
     } else {
         DBG_PRINTF("Maze: wall ahead too close, the car stayed in this cell\n");
+        Maze_MarkWall(next);  // otherwise the same direction would be chosen again and again
         setStatusLeds(60, 60, 60);  // white flash: did not reach the next cell
         Car_Wait(LED_FLASH_MS);
     }

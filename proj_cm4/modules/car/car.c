@@ -371,8 +371,8 @@ static void driveCorrect(int32_t target_mm, int16_t heading) {
  * After a sensor drive that ends near the wall (DRIVE_CORRECT_NEAR_MM) the stop position is measured while
  * standing and fixed by slow moves (driveCorrect()).
  * Restarts the distance filter then (Distance_Start()).
- * A wall that is seen closer than mm + DRIVE_SENSOR_MARGIN_MM is never driven into blindly: the car only goes
- * up to DRIVE_SENSOR_MARGIN_MM from it (or does not move if it is already there) and returns false.
+ * A wall that is seen closer than mm + DRIVE_SENSOR_MARGIN_MM is never driven into: the car does not drive,
+ * only backs up (or creeps) to the cell center in front of it (driveCorrect()), and returns false.
  * Returns true if the car drove the full mm (or to the cell center).
  * Blocking. Needs Motion_Init(), Distance_Start() and Timing_Init() before. */
 bool Car_DriveForward(uint16_t mm, uint16_t grid_mm, uint32_t blind_ms) {
@@ -382,19 +382,19 @@ bool Car_DriveForward(uint16_t mm, uint16_t grid_mm, uint32_t blind_ms) {
     uint16_t front_mm = 0;
     bool has_front = Distance_GetMm(&front_mm) && front_mm <= DRIVE_SENSOR_MAX_MM;
     int32_t stop_at = has_front ? driveStopDistance(front_mm, mm, grid_mm) : -1;
-    bool full_drive = true;
     if (has_front && stop_at < 0) {
-        full_drive = false;  // the wall is too close for mm: stop at the margin instead of driving on time
+        // The wall is too close for mm: do not drive. Back up (or creep) to the cell center instead,
+        // where the wall ahead is half a cell from the car center.
         reportDriveMode(CAR_DRIVE_SHORT);
-        if (front_mm <= DRIVE_SENSOR_MARGIN_MM + DRIVE_STOP_LEAD_MM) {
-            return false;  // already at the margin, do not move
+        int32_t center_mm = (grid_mm > 0u) ? (int32_t) grid_mm / 2 - DRIVE_SENSOR_OFFSET_MM : 0;
+        if (center_mm < (int32_t) DRIVE_SENSOR_MARGIN_MM) {
+            center_mm = DRIVE_SENSOR_MARGIN_MM;
         }
-        stop_at = DRIVE_SENSOR_MARGIN_MM;
+        driveCorrect(center_mm, commanded_yaw);
+        return false;
     }
     bool use_sensor = stop_at >= 0;
-    if (full_drive) {
-        reportDriveMode(use_sensor ? CAR_DRIVE_SENSOR : CAR_DRIVE_TIMER);
-    }
+    reportDriveMode(use_sensor ? CAR_DRIVE_SENSOR : CAR_DRIVE_TIMER);
     uint16_t stop_mm = use_sensor ? (uint16_t) (stop_at + (int32_t) DRIVE_STOP_LEAD_MM) : 0;
     // with the sensor the planned distance can differ from mm (snapped to a cell center)
     int32_t planned_mm = use_sensor ? (int32_t) front_mm - stop_at : (int32_t) mm;
@@ -428,5 +428,5 @@ bool Car_DriveForward(uint16_t mm, uint16_t grid_mm, uint32_t blind_ms) {
     if (use_sensor && stop_at <= DRIVE_CORRECT_NEAR_MM) {
         driveCorrect(stop_at, heading);
     }
-    return full_drive;
+    return true;
 }
