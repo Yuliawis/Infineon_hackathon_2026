@@ -32,7 +32,7 @@
 #define TURN_SLOWDOWN_DEG      (30)    // start slowing down this many degrees before the target
 #define TURN_TOLERANCE_DEG     (4)     // stop when this close to the target
 #define TURN_TIMEOUT_MS        (5000u)
-#define DRIVE_SPEED            (1500)  // wheel speed while driving straight
+#define DRIVE_SPEED            (1000)  // wheel speed while driving straight
 #define DRIVE_HEADING_GAIN     (30)    // speed correction per degree of heading error
 #define DRIVE_TIMEOUT_MS       (6000u)
 #define DRIVE_MM_PER_SECOND    (250u)   // car speed at DRIVE_SPEED, used without a wall ahead. CALIBRATE on the car.
@@ -45,7 +45,7 @@
 #define DRIVE_MAX_CORRECTIONS    (2)      // slow passes to fix the stop position (0 = off)
 #define DRIVE_TOLERANCE_MM       (50)     // good enough when this close to the target (sensor noise ~5-10 mm)
 #define DRIVE_CORRECT_MAX_MM     (200)    // larger error = reading not trusted, no correction
-#define DRIVE_SPEED_MIN          (750)    // creeping speed (too low = wheels stall). CALIBRATE on the car.
+#define DRIVE_SPEED_MIN          (500)    // creeping speed (too low = wheels stall). CALIBRATE on the car.
 #define DRIVE_SETTLE_MS          (100u)   // wait after stopping, while the car slides
 #define DRIVE_MEASURE_MS         (170u)   // fill the distance filter while standing (3 measurements, 50 ms each)
 #define DRIVE_CORRECT_TIMEOUT_MS (1500u)  // max time of one correction pass
