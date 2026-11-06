@@ -68,7 +68,8 @@ python3 tools/maze_viewer.py --replay log.txt     # no car: replay saved log lin
 python3 tools/maze_viewer.py --log                # also print the car's other log lines
 ```
 
-It draws walls, unmeasured sides, visited / seen cells, the Tremaux marks (orange 1, red 2) and the robot. The window
+It draws walls, unmeasured sides, visited / seen cells, the Tremaux marks (orange 1, red 2) and the robot. Next to
+the map it shows the current heading and front distance from the telemetry (gray = no value or no fresh data). The window
 title shows the link state (scanning, connected, no data yet, waiting for the run). If the viewer connected after the
 run started, it still draws what arrives and adds `(run start missed)` to the title. The viewer does not print logs by
 default. Do not run it together with `ble_serial.py`: the car accepts one connection at a time.

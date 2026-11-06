@@ -21,13 +21,14 @@ import asyncio
 import re
 import sys
 import threading
+import time
 from typing import Callable, Optional
 
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.patches import FancyArrow, Rectangle
 
-from ble_serial import NUS_TX_UUID, find_car, status
+from ble_serial import NO_VALUE, NUS_TX_UUID, find_car, parse_telemetry, status
 
 NORTH, EAST, SOUTH, WEST = range(4)
 DIR_NAME = "NESW"
@@ -57,6 +58,10 @@ class MazeMap:
         self.link = "starting"  # BLE state shown in the title: scanning / connected / disconnected ...
         self.connected = False
         self.lines_rx = 0  # log lines received on the current connection (any kind)
+        # latest telemetry ("T hdg=.. dist=.."): None = not received yet, NO_VALUE = the car had no value
+        self.hdg: Optional[int] = None
+        self.dist: Optional[int] = None
+        self.telemetry_at: Optional[float] = None  # laptop time of the last telemetry line
         self._clear()
 
     def set_link(self, text: str, connected: bool) -> None:
@@ -90,6 +95,14 @@ class MazeMap:
             self.lines_rx += 1
             if self.lines_rx == 1:
                 self.version += 1  # redraw once: "connected, no data" -> "receiving logs"
+        telemetry = parse_telemetry(line)
+        if telemetry is not None:
+            values = telemetry[1]
+            with self.lock:  # no version bump: the readouts are refreshed on their own, not with the map
+                self.hdg = values.get("hdg", self.hdg)
+                self.dist = values.get("dist", self.dist)
+                self.telemetry_at = time.monotonic()
+            return False
         line = TIMESTAMP_RE.sub("", line, count=1)  # firmware may prefix "[s.mmm] " (DEBUG_TIMESTAMP)
         if not line.startswith("@"):
             return False
@@ -242,6 +255,37 @@ def draw(ax, maze: MazeMap) -> None:
     ax.set_title(title)
 
 
+def make_readouts(fig) -> dict:
+    """Two number tiles under the legend: current heading and front distance."""
+    tiles = {}
+    for key, label, y, color in (("hdg", "HEADING", 0.30, "#1565c0"), ("dist", "DISTANCE", 0.12, "#e65100")):
+        fig.text(0.89, y + 0.07, label, ha="center", va="bottom", fontsize=9, fontweight="bold", color="#616161")
+        tiles[key] = (fig.text(0.89, y, "--", ha="center", va="center", fontsize=22, fontweight="bold",
+                               family="monospace", color=color,
+                               bbox=dict(boxstyle="round,pad=0.35", facecolor="#f5f5f5", edgecolor=color, lw=1.5)),
+                      color)
+    return tiles
+
+
+def update_readouts(tiles: dict, maze: MazeMap, live: bool) -> bool:
+    """Set the tile texts. Gray = no value or no fresh data (> 2 s). Returns True if anything changed."""
+    with maze.lock:
+        values = {"hdg": maze.hdg, "dist": maze.dist}
+        at, connected = maze.telemetry_at, maze.connected
+    stale = live and (not connected or at is None or time.monotonic() - at > 2.0)
+    changed = False
+    for key, unit in (("hdg", "°"), ("dist", " mm")):
+        text_obj, color = tiles[key]
+        value = values[key]
+        text = "--" if value is None or value == NO_VALUE else f"{value}{unit}"
+        new_color = "#9e9e9e" if stale or text == "--" else color
+        if text != text_obj.get_text() or new_color != text_obj.get_color():
+            text_obj.set_text(text)
+            text_obj.set_color(new_color)
+            changed = True
+    return changed
+
+
 # ----------------------------------------------------------------------------- input sources
 def handle_line(maze: MazeMap, line: str, show_log: bool) -> None:
     if not maze.feed(line) and show_log and line:
@@ -308,18 +352,23 @@ def main() -> None:
 
     fig, ax = plt.subplots(figsize=(9, 6))
     fig.subplots_adjust(left=0.03, right=0.78, top=0.93, bottom=0.03)
+    tiles = make_readouts(fig)
 
     if args.save:
         draw(ax, maze)
+        update_readouts(tiles, maze, live=False)
         fig.savefig(args.save, dpi=110)
         return
 
     drawn = {"version": -1}
 
     def refresh() -> None:
+        redraw = update_readouts(tiles, maze, live=not args.replay)
         if drawn["version"] != maze.version or drawn["version"] < 0:
             drawn["version"] = maze.version
             draw(ax, maze)
+            redraw = True
+        if redraw:
             fig.canvas.draw_idle()
 
     timer = fig.canvas.new_timer(interval=200)
