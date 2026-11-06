@@ -19,6 +19,12 @@ cy_rslt_t Debug_Init(void);
 // printf-style log. Goes to the debug UART if this core owns it, and to the BLE log
 // (NUS TX notifications) when BLE_LOG_ENABLED. One call is limited to DEBUG_LINE_MAX - 1 characters.
 #define DEBUG_LINE_MAX 160
+
+// 1 = start every log line with "[s.mmm] ", the time since Timing_Init() (0.000 before it).
+#ifndef DEBUG_TIMESTAMP
+#define DEBUG_TIMESTAMP 1
+#endif
+#define DEBUG_STAMP_MAX 16  // longest stamp "[4294967.295] " plus a spare byte
 void Debug_Printf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 
 // Use instead of printf: compiles out unless the output goes somewhere.
@@ -28,10 +34,20 @@ void Debug_Printf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 #define DBG_PRINTF(...) ((void) 0)
 #endif
 
+// Same, but only to the debug UART, never over BLE. For bulky output that would flood the BLE log.
+void Debug_PrintfLocal(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+#if DEBUG_UART_OWNER
+#define DBG_PRINTF_LOCAL(...) Debug_PrintfLocal(__VA_ARGS__)
+#else
+#define DBG_PRINTF_LOCAL(...) ((void) 0)
+#endif
+
 #if defined(BLE_LOG_ENABLED)
 // Log text waiting to be forwarded to CM0+ (which sends it over BLE). ISR-safe.
+void Debug_BleLogPush(const uint8_t* data, size_t len);
 size_t Debug_BleLogPeek(uint8_t* out, size_t maxLen);
 void Debug_BleLogDrop(size_t len);
+size_t Debug_BleLogUsed(void);
 #endif
 
 #endif /* DEBUG_UART_H */

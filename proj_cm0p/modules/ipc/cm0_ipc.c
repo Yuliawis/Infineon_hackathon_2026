@@ -40,7 +40,7 @@ void CM0_MessageCallback(uint32_t* msg) {
 void CM0_ReleaseCallback(void) {
     /* Message processed by CM4. Ready to receive a new message */
     isCM4Ready = true;
-    DBG_PRINTF("CM4 Accepted msg!\r\n");
+    DBG_PRINTF("CM4 Accepted msg!\n");
 }
 
 bool CM0_IsCM4Ready(void) {

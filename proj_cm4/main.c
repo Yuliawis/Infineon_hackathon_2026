@@ -52,10 +52,8 @@
 #include "debug_uart.h"
 #include "cm4_ipc.h"
 #include "cm4_cmd.h"
-
-
-#define MOTION_PRINT_PERIOD_MS   (500u)
-#define DISTANCE_PRINT_PERIOD_MS (500u)
+#include "explore.h"
+#include "telemetry.h"
 
 int main(void) {
     cy_rslt_t result;
@@ -66,7 +64,6 @@ int main(void) {
         CY_ASSERT(0);
     }
 
-    /* Enable global interrupts */
     __enable_irq();
 
     (void) Cy_IPC_Pipe_RegisterCallback(CY_IPC_EP_CYPIPE_ADDR, CM4_MessageCallback, CY_IPC_EP_CYPIPE_CM0_ADDR);
@@ -102,68 +99,29 @@ int main(void) {
     bool motionReady = Motion_Init();
     DBG_PRINTF(motionReady ? "Motion ready\n" : "Motion init failed\n");
 
-    // Main loop. Your code goes here.
+    Telemetry_Init(motionReady, distanceReady);
+    Car_SetIdleHook(Telemetry_Poll);
+
+    bool mazeReady = distanceReady && motionReady;
+    if (!mazeReady) {
+        DBG_PRINTF("Maze: distance or motion is not ready, exploration is off\n");
+    }
+
     for (;;) {
-        // Check for new messages from CM0 core and process them. This is the most important task.
         if (CM4_isDataAvailableFromCM0()) {
             CM4_ProcessIncomingIPCMessage(CM4_GetCM0Message());
         }
 
 #if defined(BLE_LOG_ENABLED)
+        // Hand buffered log text to CM0+ for BLE (non-blocking, at most 254 bytes per call)
         CM4_ForwardLogsToCM0();
 #endif
 
-        if (distanceReady) {
-            static uint32_t lastDistancePrintMs = 0;
-            uint32_t nowMs = Timing_GetMilliseconds();
-
-            (void) Distance_Update();  // does nothing in the automatic mode
-            if (nowMs - lastDistancePrintMs >= DISTANCE_PRINT_PERIOD_MS) {
-                uint16_t filteredMm;
-                bool hasDistance = Distance_GetMm(&filteredMm);
-                lastDistancePrintMs = nowMs;
-                // -1 means that there is no value (no echo, or the distance is out of range)
-                DBG_PRINTF("distance %d\n", hasDistance ? (int) filteredMm : -1);
-
-                // LED + Distance test: red at 20 mm or closer, fading to green at 200 mm or farther. Tune it as you prefer.
-                if (hasDistance) {
-                    const uint16_t nearMm = 20;
-                    const uint16_t farMm = 500;
-                    const uint8_t maxLevel = 100;  // brightness cap (out of 255)
-
-                    // Clamp the distance into the [nearMm, farMm] range
-                    uint16_t mm = filteredMm;
-                    if (mm < nearMm) {
-                        mm = nearMm;
-                    }
-
-                    if (mm > farMm) {
-                        mm = farMm;
-                    }
-
-                    // Linear blend: green grows with distance, red takes the rest
-                    uint8_t green = (uint8_t) ((uint32_t) (mm - nearMm) * maxLevel / (farMm - nearMm));
-                    uint8_t red = maxLevel - green;
-
-                    Leds_FillSolidColor(green, red, 0);  // argument order is G, R, B
-                } else {
-                    Leds_FillSolidColor(0, 100, 100);  // no valid reading: purple (red + blue)
-                }
-                Leds_Update();
-            }
+        // One step is blocking (scan, turn, drive one cell), so the IPC messages above wait for it
+        if (mazeReady) {
+            (void) Explore_Step();
         }
 
-
-        if (motionReady && Motion_Update()) {
-            static uint32_t lastPrintMs = 0;
-            uint32_t nowMs = Timing_GetMilliseconds();
-            if (nowMs - lastPrintMs >= MOTION_PRINT_PERIOD_MS) {
-                lastPrintMs = nowMs;
-                DBG_PRINTF("yaw %d deg, rate %d dps\n", Motion_GetYaw(), Motion_GetYawRate());
-            }
-        }
+        Telemetry_Poll();
     }
 }
-
-
-/* [] END OF FILE */

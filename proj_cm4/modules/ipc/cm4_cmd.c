@@ -56,6 +56,13 @@ void CM4_ForwardLogsToCM0(void) {
         Debug_BleLogDrop(n);
     }
 }
+
+void CM4_FlushLogsToCM0(void) {
+    for (uint8_t tries = 0; (tries < 40u) && (Debug_BleLogUsed() > 0u); ++tries) {
+        CM4_ForwardLogsToCM0();
+        Cy_SysLib_Delay(5);
+    }
+}
 #endif
 
 void CM4_ProcessIncomingIPCMessage(ipc_msg_t* msg) {

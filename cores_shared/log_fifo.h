@@ -12,14 +12,15 @@
 
 typedef struct {
     uint8_t* buf;
-    size_t size;               // capacity in bytes
-    size_t head;               // next write index
-    size_t tail;               // next read index
-    size_t count;              // bytes currently stored
-    volatile uint32_t dropped; // bytes rejected because the FIFO was full
+    size_t size;                // capacity in bytes
+    size_t head;                // next write index
+    size_t tail;                // next read index
+    size_t count;               // bytes currently stored
+    volatile uint32_t dropped;  // bytes rejected because the FIFO was full
 } log_fifo_t;
 
-#define LOG_FIFO_INIT(storage) {.buf = (storage), .size = sizeof(storage), .head = 0, .tail = 0, .count = 0, .dropped = 0}
+#define LOG_FIFO_INIT(storage) \
+    {.buf = (storage), .size = sizeof(storage), .head = 0, .tail = 0, .count = 0, .dropped = 0}
 
 // Append the whole chunk, or nothing if it does not fit (keeps lines intact).
 static inline bool LogFifo_Push(log_fifo_t* f, const uint8_t* data, size_t len) {
