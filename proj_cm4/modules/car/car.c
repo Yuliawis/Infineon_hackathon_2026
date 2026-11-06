@@ -7,6 +7,8 @@
 #include "motion.h"
 #include "cybsp.h"
 #include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
 
 /////////////////////PCA9685 drive area///////////////////////////////////
 #define SERVO_FREQUENCY 50      //Define the operating frequency of servo (shared with the motors, same as in Freenove sketches)
@@ -48,45 +50,53 @@ void Motor_Init(void) {
     PCA9685_setToFrequency(SERVO_FREQUENCY);
 }
 
+/* Last output written to each motor, after the direction sign. INT32_MIN means "nothing written
+ * yet", so the very first call always reaches the chip. */
+static int32_t last_motor_output[4] = {INT32_MIN, INT32_MIN, INT32_MIN, INT32_MIN};
+
+/* One motor is two PCA9685 channels: IN1 forward, IN2 backward. Written only when the value changed.
+ *
+ * The drive module calls Motor_Move() on every pass of the main loop. Each channel is one I2C write,
+ * which at 100 kHz takes about half a millisecond, so writing all eight channels every time kept the
+ * bus busy for 4 to 5 ms per pass. The gyro shares that bus, so this delayed both the heading and the
+ * moment the motors are cut at the end of a turn.
+ *
+ * The PCA9685 writes do not check for errors, so a lost write would never be repeated and a lost
+ * "stop" would leave the car driving. force makes Motor_Move() rewrite everything now and then. */
+#define MOTOR_REFRESH_MS (100u)
+
+static void setMotor(uint8_t index, uint8_t pin_in1, uint8_t pin_in2, int speed, bool force) {
+    if (!force && (last_motor_output[index] == speed)) {
+        return;
+    }
+    last_motor_output[index] = speed;
+
+    if (speed >= 0) {
+        PCA9685_setChannelPulseWidth(pin_in1, speed);
+        PCA9685_setChannelPulseWidth(pin_in2, 0);
+    } else {
+        PCA9685_setChannelPulseWidth(pin_in1, 0);
+        PCA9685_setChannelPulseWidth(pin_in2, -speed);
+    }
+}
+
 // Function to control the car motors
 void Motor_Move(int m1_speed, int m2_speed, int m3_speed, int m4_speed) {
-    m1_speed = MOTOR_1_DIRECTION * constrain_int(m1_speed, MOTOR_SPEED_MIN, MOTOR_SPEED_MAX);
-    m2_speed = MOTOR_2_DIRECTION * constrain_int(m2_speed, MOTOR_SPEED_MIN, MOTOR_SPEED_MAX);
-    m3_speed = MOTOR_3_DIRECTION * constrain_int(m3_speed, MOTOR_SPEED_MIN, MOTOR_SPEED_MAX);
-    m4_speed = MOTOR_4_DIRECTION * constrain_int(m4_speed, MOTOR_SPEED_MIN, MOTOR_SPEED_MAX);
+    static uint32_t last_refresh_ms = 0;
+    const uint32_t now_ms = Timing_GetMilliseconds();
+    const bool force = (now_ms - last_refresh_ms) >= MOTOR_REFRESH_MS;
+    if (force) {
+        last_refresh_ms = now_ms;
+    }
 
-    if (m1_speed >= 0) {
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M1_IN1, m1_speed);
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M1_IN2, 0);
-    } else {
-        m1_speed = -m1_speed;
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M1_IN1, 0);
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M1_IN2, m1_speed);
-    }
-    if (m2_speed >= 0) {
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M2_IN1, m2_speed);
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M2_IN2, 0);
-    } else {
-        m2_speed = -m2_speed;
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M2_IN1, 0);
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M2_IN2, m2_speed);
-    }
-    if (m3_speed >= 0) {
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M3_IN1, m3_speed);
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M3_IN2, 0);
-    } else {
-        m3_speed = -m3_speed;
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M3_IN1, 0);
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M3_IN2, m3_speed);
-    }
-    if (m4_speed >= 0) {
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M4_IN1, m4_speed);
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M4_IN2, 0);
-    } else {
-        m4_speed = -m4_speed;
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M4_IN1, 0);
-        PCA9685_setChannelPulseWidth(PIN_MOTOR_M4_IN2, m4_speed);
-    }
+    setMotor(0, PIN_MOTOR_M1_IN1, PIN_MOTOR_M1_IN2,
+             MOTOR_1_DIRECTION * constrain_int(m1_speed, MOTOR_SPEED_MIN, MOTOR_SPEED_MAX), force);
+    setMotor(1, PIN_MOTOR_M2_IN1, PIN_MOTOR_M2_IN2,
+             MOTOR_2_DIRECTION * constrain_int(m2_speed, MOTOR_SPEED_MIN, MOTOR_SPEED_MAX), force);
+    setMotor(2, PIN_MOTOR_M3_IN1, PIN_MOTOR_M3_IN2,
+             MOTOR_3_DIRECTION * constrain_int(m3_speed, MOTOR_SPEED_MIN, MOTOR_SPEED_MAX), force);
+    setMotor(3, PIN_MOTOR_M4_IN1, PIN_MOTOR_M4_IN2,
+             MOTOR_4_DIRECTION * constrain_int(m4_speed, MOTOR_SPEED_MIN, MOTOR_SPEED_MAX), force);
 }
 
 

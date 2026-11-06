@@ -46,6 +46,12 @@ void Drive_Init(void);
 
 ///////////////////// MOVEMENTS ///////////////////////////////////////////////
 
+/* HEADINGS. Every movement is given the absolute heading it has to hold or reach, in whole degrees
+ * in the frame of Motion_GetYaw(), positive to the left. Never "the heading the car has now": on a
+ * slippery floor every turn and every stop leaves the car a few degrees off, and a movement that
+ * adopted the current heading would keep that error for the rest of the run. With an absolute
+ * heading the error of one movement is corrected by the next one. */
+
 /* Step forward while following the right wall. The head must point right.
  *
  * length_mm is an upper limit, not a promise. There are no encoders, so the distance travelled is
@@ -56,10 +62,12 @@ void Drive_Init(void);
  *   - the time for length_mm ran out    -> DRIVE_END_LENGTH, scan again
  *
  * The heading is held with the gyro, so the car drives straight even when the right wall is out of
- * sight. A reading without a valid echo never ends the step: silence is not an opening. */
-void Drive_StartStep(uint16_t length_mm);
+ * sight. While the right wall is visible, a small offset of at most CONFIG_WALL_CORRECTION_MAX_DEG
+ * is added to heading_deg to steer back to CONFIG_RIGHT_TARGET_MM from the wall. A reading without
+ * a valid echo never ends the step and never steers: silence is not an opening. */
+void Drive_StartStep(uint16_t length_mm, int16_t heading_deg);
 
-/* Step forward watching nothing at all, holding the heading, until the length is used up.
+/* Step forward watching nothing at all, holding heading_deg, until the length is used up.
  *
  * Needed for the short step the car must take after a turn, before it looks right again. Right after
  * a turn into an opening the right side is open by definition, so a normal step would end instantly
@@ -68,9 +76,10 @@ void Drive_StartStep(uint16_t length_mm);
  *
  * The head is free during this movement, which is a good moment to aim it for what comes next.
  * Always ends with DRIVE_END_LENGTH. */
-void Drive_StartMove(uint16_t length_mm);
+void Drive_StartMove(uint16_t length_mm, int16_t heading_deg);
 
-/* Step forward until the wall in front is stop_front_mm away. The head must point forward.
+/* Step forward holding heading_deg until the wall in front is stop_front_mm away. The head must
+ * point forward.
  *
  * This is how the car drives up to the middle of an opening before turning: the target comes from
  * the corridor width, and the measurement tells the car where it actually is, which nothing else
@@ -78,16 +87,15 @@ void Drive_StartMove(uint16_t length_mm);
  *
  * max_length_mm caps how far this may go, in case the front wall is never seen.
  * Ends with DRIVE_END_TARGET_REACHED, or DRIVE_END_LENGTH when the cap is reached first. */
-void Drive_StartApproach(uint16_t stop_front_mm, uint16_t max_length_mm);
+void Drive_StartApproach(uint16_t stop_front_mm, uint16_t max_length_mm, int16_t heading_deg);
 
-/* Turn in place by delta_deg, positive to the left, matching Motion_GetYaw() and
- * Decide_ActionTurnDegrees().
+/* Turn in place until the car faces heading_deg.
  *
  * For a half turn, ask for two turns of 90 degrees instead of one of 180: around 180 the shortest
  * way in Motion_GetYawError() can flip sign and the car would hunt back and forth.
  *
  * Ends with DRIVE_END_TARGET_REACHED, or DRIVE_END_TIMEOUT when the heading is not reached in time. */
-void Drive_StartTurn(int16_t delta_deg);
+void Drive_StartTurnTo(int16_t heading_deg);
 
 /* Stop the motors at once and end the current movement with DRIVE_END_STOPPED. */
 void Drive_Stop(void);
@@ -108,6 +116,12 @@ Drive_EndReason Drive_GetEndReason(void);
  * Good enough to tell "we have barely moved" from "we crossed the corridor", which the stuck
  * detection needs. Never use it as a real distance. */
 uint16_t Drive_GetLastStepMm(void);
+
+/* How far the last step went after the right wall was last seen (a valid reading no further than
+ * CONFIG_RIGHT_OPEN_MM), estimated from speed and time like Drive_GetLastStepMm(). 0 when the step
+ * ended with the wall still in sight. Tells the navigator how far it is already into an opening that
+ * the step did not catch. Only meaningful after a step. */
+uint16_t Drive_GetMmSinceWallSeen(void);
 
 ///////////////////// SPEED CALIBRATION ///////////////////////////////////////
 

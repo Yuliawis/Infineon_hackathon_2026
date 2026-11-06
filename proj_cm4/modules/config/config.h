@@ -55,6 +55,33 @@ extern "C" {
  * throw the car across the corridor. START. */
 #define CONFIG_HEADING_CORRECTION_MAX_DEG (10)
 
+/* Wall following while stepping. The car holds the grid heading (a multiple of 90 degrees from the
+ * start of the run) plus a small offset that steers it back to CONFIG_RIGHT_TARGET_MM from the right
+ * wall. Without this nothing ever corrects a sideways drift: every turn on a slippery floor ends a
+ * few degrees off, and those degrees used to be kept forever.
+ *
+ * One degree of offset per this many millimeters of distance error, and never more than the limit.
+ * The limit is kept small on purpose: the side sensor only gets a clean echo near a right angle to
+ * the wall, and the beam is about 14 degrees wide, so a few degrees of tilt are harmless. START. */
+/* 1 = steer by the right wall while stepping, 0 = hold the grid heading only. Switch it off first
+ * if the car drives into walls, to tell a wrong sign here from any other problem. */
+#define CONFIG_WALL_FOLLOW_ENABLE (1)
+
+#define CONFIG_WALL_MM_PER_DEG         (10)
+#define CONFIG_WALL_CORRECTION_MAX_DEG (5)
+
+/* The side sensor is only believed while the car is within this many degrees of the grid heading.
+ * Turned further, the beam hits the wall at a slant: the echo either never comes back or comes back
+ * from further along the wall, and reads as "much further away" or even as an opening. Readings
+ * taken then neither steer the car nor end the step as "wall lost". Must be larger than
+ * CONFIG_WALL_CORRECTION_MAX_DEG, or wall following would switch itself off. START. */
+#define CONFIG_WALL_TRUST_MAX_DEG (8)
+
+/* Before every scan, and before an opening is confirmed, the car turns in place back to the grid
+ * heading when it is further off than this. A scan taken at a slant measures nonsense, and driving
+ * the error out while moving forward is what made the car skid. */
+#define CONFIG_ALIGN_TOLERANCE_DEG (5)
+
 ///////////////////// STEPPING ////////////////////////////////////////////////
 
 /* Longest single step forward. Short steps mean more scans and a slower run, long steps mean the car
@@ -64,9 +91,28 @@ extern "C" {
 /* Free space that must be left in front of the car at the end of a step. START. */
 #define CONFIG_FRONT_MARGIN_MM (120)
 
-/* Short step after a turn, before the right side is checked again. Without it the car can see the
- * same opening a second time and spin in place. START. */
+/* How far the car keeps sliding forward after the motors are cut, on this slippery floor. Every
+ * "stop in front of the wall" distance is reached this much earlier, so the car comes to rest where
+ * it was meant to and not that much closer to the wall. Also taken off the length of a step that
+ * ends in front of a wall.
+ * TODO MEASURE: let the car approach a wall, mark where the "drive: end target reached" log line
+ * comes, and measure how far it still slid. Too close to the wall means raise it. START. */
+#define CONFIG_STOP_SLIDE_MM (50)
+
+/* While approaching a front wall the car slows down over this last stretch before the stop point,
+ * from CONFIG_PWM_STEP to CONFIG_PWM_MIN. A slow car barely slides when it stops, which makes the
+ * stop both earlier and much more repeatable. START. */
+#define CONFIG_APPROACH_SLOWDOWN_MM (150)
+
+/* Short step after a left turn or a half turn, before the right side is checked again. START. */
 #define CONFIG_STEP_AFTER_TURN_MM (80)
+
+/* After a RIGHT turn the car stands in the middle of the old corridor, facing the opening. Its right
+ * side then looks back down the old corridor, which is open, so a scan taken there would send it
+ * right again, back where it came from. It first has to drive into the new corridor until the side
+ * beam is past the corner, which is half a corridor less the sensor offset, plus this margin for the
+ * width of the beam and the wall. START. */
+#define CONFIG_ENTER_MARGIN_MM (80)
 
 /* How far the car has already driven past the real edge of the wall by the time it notices that the
  * wall ended. Subtracted from the distance driven up to the middle of an opening.
@@ -77,9 +123,12 @@ extern "C" {
  * larger if the real speed is higher. */
 #define CONFIG_OPENING_LAG_MM (25)
 
-/* Small turn away from the wall when the right wall got dangerously close, before scanning again.
- * Without it the car would stop at the same spot on every step and never get anywhere. START. */
+/* When the right wall got dangerously close, the car drives a short way forward aimed this many
+ * degrees away from the wall, then scans again. The angle is relative to the grid heading and only
+ * applies to that one short move: the next step goes back to the grid heading, so the escape never
+ * leaves the car driving diagonally down the corridor. START. */
 #define CONFIG_ESCAPE_TURN_DEG (15)
+#define CONFIG_ESCAPE_MOVE_MM  (100)
 
 /* Starting guess for the forward speed, which is how a length in millimeters becomes a time in
  * milliseconds. Without encoders this is the only bridge between the two, so it is a calibration
@@ -116,10 +165,20 @@ extern "C" {
 /* Output used for a straight step. START. */
 #define CONFIG_PWM_STEP (1600)
 
+/* Every forward movement ramps its output up from CONFIG_PWM_MIN to CONFIG_PWM_STEP over this time.
+ * Jumping straight to full output on a slippery floor spins the wheels, and spinning wheels both
+ * waste the distance estimate and kick the heading. START. */
+#define CONFIG_DRIVE_RAMP_MS (200u)
+
 /* How hard the car steers back onto its heading while stepping, in PWM units per degree of error.
  * Too small and the car drifts, too large and it weaves from side to side.
  * At the correction limit of 10 degrees this gives 400, a quarter of the step speed. START. */
 #define CONFIG_HEADING_GAIN_PWM_PER_DEG (40)
+
+/* The steering difference between the two sides is never more than this percentage of the forward
+ * output. Without the cap a few degrees of error at the slow start of a step gave 400 against 1200,
+ * which on a slippery floor is a spin, not a correction. START. */
+#define CONFIG_HEADING_CORRECTION_MAX_PERCENT (20)
 
 /* Turning in place on a slippery floor.
  *
@@ -134,7 +193,9 @@ extern "C" {
  * it swing past the target over and over until the timeout. */
 #define CONFIG_TURN_TOLERANCE_DEG (5)
 
-/* Output far from the target, and near it. Below the minimum the wheels stall instead of turning. */
+/* Output far from the target, and near it. Below the minimum the wheels stall instead of turning.
+ * MEASURED for turning in place, so it is used as is and NOT lifted to CONFIG_PWM_MIN, which is a
+ * separate guess for driving forward. */
 #define CONFIG_TURN_SPEED_MAX (1000)
 #define CONFIG_TURN_SPEED_MIN (700)
 

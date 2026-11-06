@@ -34,7 +34,7 @@ typedef enum {
     NAV_STATE_APPROACH,      /* driving up to the middle of the opening */
     NAV_STATE_TURN,          /* turning in place */
     NAV_STATE_SETTLE,        /* the short step after a turn */
-    NAV_STATE_ESCAPE,        /* the right wall got too close: turning away from it */
+    NAV_STATE_ESCAPE,        /* the right wall got too close: short move aimed away from it */
     NAV_STATE_FINISHED,      /* the run is over */
     NAV_STATE_ERROR,         /* the hardware did not start up */
     NAV_STATE_COUNT

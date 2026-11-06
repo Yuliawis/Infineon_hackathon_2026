@@ -28,13 +28,22 @@ typedef enum {
 static State state = STATE_IDLE;
 static Drive_EndReason end_reason = DRIVE_END_NONE;
 
-/* Heading the car holds while stepping, or turns to while turning. */
+/* Heading the car holds while stepping, or turns to while turning. Always handed in by the caller as
+ * an absolute heading, never taken from where the car happens to point. */
 static int16_t target_yaw_deg = 0;
+
+/* Offset added to target_yaw_deg during a step to steer back to the wanted distance from the right
+ * wall. Kept between readings, so the car keeps steering while the next echo is on its way. */
+static int16_t wall_offset_deg = 0;
 
 static uint32_t move_start_ms = 0;
 static uint32_t move_limit_ms = 0; /* how long the movement may last, not a deadline */
 static uint16_t approach_stop_mm = 0;
 static uint16_t last_step_mm = 0;
+
+/* When the right wall was last seen during the current step, and how far the step went after that. */
+static uint32_t wall_seen_ms = 0;
+static uint16_t since_wall_mm = 0;
 
 /* Speed used to turn a length into a time. Starts as the guess from config.h and is replaced by the
  * car's own measurements, see the speed calibration section. */
@@ -59,6 +68,9 @@ static uint16_t approach_last_mm = 0;
 static uint32_t approach_last_ms = 0;
 static bool approach_first_valid = false;
 static bool approach_last_valid = false;
+
+/* Output limit while approaching, lowered as the front wall gets near. Kept between readings. */
+static int approach_top_pwm = STEP_BASE_PWM;
 
 static const char* const end_reason_names[DRIVE_END_COUNT] = {
         [DRIVE_END_NONE] = "none",
@@ -146,6 +158,9 @@ static void measureSpeed(void) {
 static void finish(Drive_EndReason reason) {
     setWheels(0, 0);
 
+    DBG_PRINTF("drive: end %s, yaw %d target %d wall offset %d\n", Drive_EndReasonName(reason),
+               (int) Motion_GetYaw(), (int) target_yaw_deg, (int) wall_offset_deg);
+
     /* The approach is the one movement with a ruler along it, so this is where the speed gets
      * checked against reality. Done before last_step_mm, so that estimate uses the fresh speed. */
     if (state == STATE_APPROACH) {
@@ -155,6 +170,9 @@ static void finish(Drive_EndReason reason) {
     if ((state == STATE_MOVE) || (state == STATE_STEP) || (state == STATE_APPROACH)) {
         last_step_mm = timeToLengthMm(Timing_GetMilliseconds() - move_start_ms);
     }
+    if (state == STATE_STEP) {
+        since_wall_mm = timeToLengthMm(Timing_GetMilliseconds() - wall_seen_ms);
+    }
 
     state = STATE_IDLE;
     end_reason = reason;
@@ -163,14 +181,33 @@ static void finish(Drive_EndReason reason) {
 /* Hold the heading with the gyro. The wall is not used for steering at all: the ultrasonic sensor is
  * only trustworthy near a right angle to the wall, and a car that keeps correcting on the wall keeps
  * turning away from that angle and spoils its own readings. The gyro has no such problem. */
-static void driveStraight(void) {
-    int error_deg = Motion_GetYawError(target_yaw_deg);
+static void driveStraightAt(int16_t heading_deg, int top_pwm) {
+    int error_deg = Motion_GetYawError(heading_deg);
     error_deg = constrain_int(error_deg, -CONFIG_HEADING_CORRECTION_MAX_DEG, CONFIG_HEADING_CORRECTION_MAX_DEG);
 
+    /* Soft start: on a slippery floor full output from standstill only spins the wheels. */
+    const uint32_t elapsed_ms = Timing_GetMilliseconds() - move_start_ms;
+    int base_pwm = STEP_BASE_PWM;
+    if (elapsed_ms < CONFIG_DRIVE_RAMP_MS) {
+        base_pwm = CONFIG_PWM_MIN + (int) (((uint32_t) (STEP_BASE_PWM - CONFIG_PWM_MIN) * elapsed_ms) /
+                                           CONFIG_DRIVE_RAMP_MS);
+    }
+    if (base_pwm > top_pwm) {
+        base_pwm = top_pwm; /* slowing down in front of a wall */
+    }
+
     /* A positive error means the car has to turn left, so the left wheels slow down and the right
-     * ones speed up. */
-    const int correction = error_deg * CONFIG_HEADING_GAIN_PWM_PER_DEG;
-    setWheels(STEP_BASE_PWM - correction, STEP_BASE_PWM + correction);
+     * ones speed up. Capped relative to the forward output, so it stays a correction and never turns
+     * into a spin, least of all during the slow start. Larger errors are not for this function: the
+     * navigator turns the car in place before it moves (see CONFIG_ALIGN_TOLERANCE_DEG). */
+    const int correction_max = (base_pwm * CONFIG_HEADING_CORRECTION_MAX_PERCENT) / 100;
+    const int correction =
+            constrain_int(error_deg * CONFIG_HEADING_GAIN_PWM_PER_DEG, -correction_max, correction_max);
+    setWheels(base_pwm - correction, base_pwm + correction);
+}
+
+static void driveStraight(int16_t heading_deg) {
+    driveStraightAt(heading_deg, STEP_BASE_PWM);
 }
 
 ///////////////////// INIT ////////////////////////////////////////////////////
@@ -194,17 +231,22 @@ void Drive_Init(void) {
 
 ///////////////////// MOVEMENTS ///////////////////////////////////////////////
 
-void Drive_StartStep(uint16_t length_mm) {
-    target_yaw_deg = Motion_GetYaw(); /* hold whatever heading the car has now */
+void Drive_StartStep(uint16_t length_mm, int16_t heading_deg) {
+    target_yaw_deg = heading_deg;
+    wall_offset_deg = 0;
     move_start_ms = Timing_GetMilliseconds();
+    /* A step is only started when the scan did not find the right side open, so the wall counts as
+     * seen at the start. */
+    wall_seen_ms = move_start_ms;
+    since_wall_mm = 0;
     move_limit_ms = lengthToTimeMs(length_mm);
     last_step_mm = 0;
     end_reason = DRIVE_END_NONE;
     state = STATE_STEP;
 }
 
-void Drive_StartMove(uint16_t length_mm) {
-    target_yaw_deg = Motion_GetYaw();
+void Drive_StartMove(uint16_t length_mm, int16_t heading_deg) {
+    target_yaw_deg = heading_deg;
     move_start_ms = Timing_GetMilliseconds();
     move_limit_ms = lengthToTimeMs(length_mm);
     last_step_mm = 0;
@@ -212,25 +254,30 @@ void Drive_StartMove(uint16_t length_mm) {
     state = STATE_MOVE;
 }
 
-void Drive_StartApproach(uint16_t stop_front_mm, uint16_t max_length_mm) {
-    target_yaw_deg = Motion_GetYaw();
+void Drive_StartApproach(uint16_t stop_front_mm, uint16_t max_length_mm, int16_t heading_deg) {
+    target_yaw_deg = heading_deg;
     move_start_ms = Timing_GetMilliseconds();
     move_limit_ms = lengthToTimeMs(max_length_mm);
     approach_stop_mm = stop_front_mm;
     last_step_mm = 0;
     approach_first_valid = false;
     approach_last_valid = false;
+    approach_top_pwm = STEP_BASE_PWM;
     end_reason = DRIVE_END_NONE;
     state = STATE_APPROACH;
 }
 
-void Drive_StartTurn(int16_t delta_deg) {
-    /* The commanded angle is scaled to cancel a scale error in the gyro, see
-     * CONFIG_TURN_ANGLE_PERCENT. At 100 percent this changes nothing. */
-    const int32_t scaled_deg = ((int32_t) delta_deg * CONFIG_TURN_ANGLE_PERCENT) / 100;
-
-    /* Motion_GetYawError() wraps the angle itself, so a sum outside the (-180, 180] range is fine. */
-    target_yaw_deg = (int16_t) (Motion_GetYaw() + scaled_deg);
+void Drive_StartTurnTo(int16_t heading_deg) {
+    if (CONFIG_TURN_ANGLE_PERCENT == 100) {
+        target_yaw_deg = heading_deg;
+    } else {
+        /* The angle still to turn is scaled to cancel a scale error in the gyro, see
+         * CONFIG_TURN_ANGLE_PERCENT. Motion_GetYawError() wraps the angle itself, so a sum outside
+         * the (-180, 180] range is fine. */
+        const int32_t delta_deg = Motion_GetYawError(heading_deg);
+        const int32_t scaled_deg = (delta_deg * CONFIG_TURN_ANGLE_PERCENT) / 100;
+        target_yaw_deg = (int16_t) (Motion_GetYaw() + scaled_deg);
+    }
     turn_direction = (Motion_GetYawError(target_yaw_deg) > 0) ? 1 : -1;
     turn_pass = 0;
     turn_phase = TURN_PHASE_SPIN;
@@ -255,7 +302,7 @@ static void updateMove(void) {
         return;
     }
 
-    driveStraight();
+    driveStraight(target_yaw_deg);
 }
 
 /* Forward while following the right wall. */
@@ -266,10 +313,22 @@ static void updateStep(void) {
      * steep angle often never comes back, so silence may mean a wall just as well as open space, and
      * ending the step on it would invent openings that are not there. */
     if (Sense_GetDistanceMm(&wall_mm)) {
+        /* Anything within the open threshold is a wall, at any angle: a slant only adds distance. */
+        if (wall_mm <= CONFIG_RIGHT_OPEN_MM) {
+            wall_seen_ms = Timing_GetMilliseconds();
+        }
+
+        /* A slanted beam reads too far, never too near, so "too close" is believed at any angle. */
         if (wall_mm < CONFIG_RIGHT_TOO_CLOSE_MM) {
             finish(DRIVE_END_WALL_TOO_CLOSE);
             return;
         }
+    }
+
+    /* Everything else about the wall is only believed while the car is roughly square to it. */
+    const bool square_to_wall = absInt(Motion_GetYawError(target_yaw_deg)) <= CONFIG_WALL_TRUST_MAX_DEG;
+
+    if (square_to_wall && Sense_GetDistanceMm(&wall_mm)) {
 
         /* The same threshold a scan uses to call a direction open, on purpose: "the wall ended while
          * driving" and "that direction is open" have to mean the same thing, or the car would find
@@ -278,6 +337,15 @@ static void updateStep(void) {
             finish(DRIVE_END_WALL_LOST);
             return;
         }
+
+        /* Steer back to the middle of the corridor. A wall further away than the target means the
+         * car has drifted left and has to aim a little to the right, which is a negative offset. */
+        if (CONFIG_WALL_FOLLOW_ENABLE) {
+            const int distance_error_mm = (int) wall_mm - CONFIG_RIGHT_TARGET_MM;
+            wall_offset_deg = (int16_t) constrain_int(-distance_error_mm / CONFIG_WALL_MM_PER_DEG,
+                                                      -CONFIG_WALL_CORRECTION_MAX_DEG,
+                                                      CONFIG_WALL_CORRECTION_MAX_DEG);
+        }
     }
 
     if ((Timing_GetMilliseconds() - move_start_ms) >= move_limit_ms) {
@@ -285,7 +353,7 @@ static void updateStep(void) {
         return;
     }
 
-    driveStraight();
+    driveStraight((int16_t) (target_yaw_deg + wall_offset_deg));
 }
 
 /* Forward until the front wall is at the wanted distance. */
@@ -301,13 +369,31 @@ static void updateApproach(void) {
             approach_first_ms = now_ms;
             approach_first_valid = true;
         }
-        approach_last_mm = front_mm;
-        approach_last_ms = now_ms;
-        approach_last_valid = true;
 
-        if (front_mm <= approach_stop_mm) {
+        /* The motors are cut early by two things the floor and the sensor add on top:
+         *  - the slide after the motors stop, see CONFIG_STOP_SLIDE_MM;
+         *  - the median filter, whose reading is about one measurement behind the real distance.
+         * Without them the car came to rest that much closer to the wall than it was told. */
+        const int trigger_mm = (int) approach_stop_mm + CONFIG_STOP_SLIDE_MM + (int) filterLagMm();
+        const int remaining_mm = (int) front_mm - trigger_mm;
+
+        if (remaining_mm <= 0) {
             finish(DRIVE_END_TARGET_REACHED);
             return;
+        }
+
+        if (remaining_mm < CONFIG_APPROACH_SLOWDOWN_MM) {
+            approach_top_pwm = CONFIG_PWM_MIN + ((STEP_BASE_PWM - CONFIG_PWM_MIN) * remaining_mm) /
+                                                        CONFIG_APPROACH_SLOWDOWN_MM;
+        } else {
+            approach_top_pwm = STEP_BASE_PWM;
+
+            /* The speed is only sampled while driving at full output. Including the slow stretch
+             * would make the measured speed too low, and every later step, which converts a length
+             * into a time with that speed, would then drive too far. */
+            approach_last_mm = front_mm;
+            approach_last_ms = now_ms;
+            approach_last_valid = true;
         }
     }
 
@@ -316,7 +402,7 @@ static void updateApproach(void) {
         return;
     }
 
-    driveStraight();
+    driveStraightAt(target_yaw_deg, approach_top_pwm);
 }
 
 /* Cut the motors and start waiting for the car to stop sliding. */
@@ -341,7 +427,9 @@ static int turnSpeedFor(int error_deg) {
         }
     }
 
-    return (speed > CONFIG_PWM_MIN) ? speed : CONFIG_PWM_MIN;
+    /* Deliberately not lifted to CONFIG_PWM_MIN: the turn speeds were measured for turning in place,
+     * and lifting them made the slow end of the ramp and every correction pass faster than tuned. */
+    return speed;
 }
 
 /* Learn how far the car slides after the motors are cut.
@@ -383,16 +471,18 @@ static void updateTurn(void) {
 
     switch (turn_phase) {
         case TURN_PHASE_SPIN: {
-            if (absInt(error_deg) <= CONFIG_TURN_TOLERANCE_DEG) {
-                beginTurnSettle();
-                return;
-            }
-
             /* Stop early by what the car is going to slide: angle = rotation speed * coast time.
-             * Only on the first pass, because the corrections crawl and hardly slide at all. */
+             * Only on the first pass, because the corrections crawl and hardly slide at all.
+             *
+             * This check comes BEFORE the plain tolerance check on purpose. The window here always
+             * contains the tolerance window, so on the first pass every stop goes through this
+             * branch and records the rotation speed. The other order let a car that reached the
+             * tolerance window directly stop without it, and then learnCoastTime() had nothing to
+             * learn from. Once the coast time had dropped to zero that happened on every turn, and
+             * the learning was switched off for good. */
             if (turn_pass == 0u) {
                 const int32_t rate_dps = Motion_GetYawRate();
-                const bool turning_towards_target = ((rate_dps > 0) == (error_deg > 0));
+                const bool turning_towards_target = (rate_dps != 0) && ((rate_dps > 0) == (error_deg > 0));
                 const int32_t coast_deg = (absInt32(rate_dps) * turn_coast_ms) / 1000;
 
                 if (turning_towards_target && (absInt(error_deg) <= CONFIG_TURN_TOLERANCE_DEG + coast_deg)) {
@@ -400,6 +490,11 @@ static void updateTurn(void) {
                     beginTurnSettle();
                     return;
                 }
+            }
+
+            if (absInt(error_deg) <= CONFIG_TURN_TOLERANCE_DEG) {
+                beginTurnSettle();
+                return;
             }
 
             /* A positive error means turn left: left wheels backward, right wheels forward. */
@@ -462,6 +557,10 @@ Drive_EndReason Drive_GetEndReason(void) {
 
 uint16_t Drive_GetLastStepMm(void) {
     return last_step_mm;
+}
+
+uint16_t Drive_GetMmSinceWallSeen(void) {
+    return since_wall_mm;
 }
 
 uint16_t Drive_GetSpeedMmps(void) {

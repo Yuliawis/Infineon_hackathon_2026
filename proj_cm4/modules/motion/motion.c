@@ -197,12 +197,14 @@ bool Motion_Update(void) {
         return false;
     }
 
-    uint32_t dt_ms = now_ms - last_update_ms;
-    last_update_ms = now_ms;
-
     if (!MPU6050_readAll(&data)) {
+        /* last_update_ms is left alone, so the next good sample integrates over the whole gap. Moving
+         * it forward here threw away the rotation of every interval whose read failed. */
         return false;
     }
+
+    uint32_t dt_ms = now_ms - last_update_ms;
+    last_update_ms = now_ms;
 
     accel = data.accel;
     yaw_rate = MOTION_YAW_DIRECTION * (data.gyro.z - gyro_bias.z);
