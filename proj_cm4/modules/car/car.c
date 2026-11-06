@@ -35,7 +35,6 @@
 #define DRIVE_SPEED            (1000)  // wheel speed while driving straight
 #define DRIVE_HEADING_GAIN     (30)    // speed correction per degree of heading error
 #define DRIVE_TIMEOUT_MS       (6000u)
-#define DRIVE_MM_PER_SECOND    (250u)   // car speed at DRIVE_SPEED, used without a wall ahead. CALIBRATE on the car.
 #define DRIVE_SENSOR_MAX_MM    (3000u)  // farther than this the wall ahead is not trusted as a reference
 #define DRIVE_SENSOR_MARGIN_MM (100u)   // keep at least this distance to the wall ahead
 #define DRIVE_SENSOR_OFFSET_MM (125)     // from the car center forward to the distance sensor. CALIBRATE on the car.
@@ -364,8 +363,10 @@ static void driveCorrect(int32_t target_mm, int16_t heading) {
 /* Drive straight forward by about mm millimeters, holding the heading with the gyro.
  * If a wall is seen ahead (head must look forward, distance filter must be fresh), the distance to it is the
  * reference: see driveStopDistance(), the car stops DRIVE_STOP_LEAD_MM early to cover sensor lag and coasting.
- * Otherwise the time is used (DRIVE_MM_PER_SECOND).
- * With the sensor the drive still ends after DRIVE_SENSOR_TIME_PCT of the expected time, so a lost echo or a
+ * Otherwise (no echo, or the wall is farther than DRIVE_SENSOR_MAX_MM) the car drives blind for blind_ms,
+ * the time the caller measured for mm at DRIVE_SPEED.
+ * With the sensor the drive still ends after DRIVE_SENSOR_TIME_PCT of the expected time (blind_ms scaled to the
+ * planned distance), so a lost echo or a
  * wrong (too far) reading can't make the car drive on until DRIVE_TIMEOUT_MS.
  * After a sensor drive that ends near the wall (DRIVE_CORRECT_NEAR_MM) the stop position is measured while
  * standing and fixed by slow moves (driveCorrect()).
@@ -374,7 +375,10 @@ static void driveCorrect(int32_t target_mm, int16_t heading) {
  * up to DRIVE_SENSOR_MARGIN_MM from it (or does not move if it is already there) and returns false.
  * Returns true if the car drove the full mm (or to the cell center).
  * Blocking. Needs Motion_Init(), Distance_Start() and Timing_Init() before. */
-bool Car_DriveForward(uint16_t mm, uint16_t grid_mm) {
+bool Car_DriveForward(uint16_t mm, uint16_t grid_mm, uint32_t blind_ms) {
+    if (mm == 0u) {
+        return true;
+    }
     uint16_t front_mm = 0;
     bool has_front = Distance_GetMm(&front_mm) && front_mm <= DRIVE_SENSOR_MAX_MM;
     int32_t stop_at = has_front ? driveStopDistance(front_mm, mm, grid_mm) : -1;
@@ -397,8 +401,8 @@ bool Car_DriveForward(uint16_t mm, uint16_t grid_mm) {
     if (planned_mm < (int32_t) mm) {
         planned_mm = (int32_t) mm;  // never a shorter time limit than for mm itself
     }
-    uint32_t duration_ms = (uint32_t) planned_mm * 1000u / DRIVE_MM_PER_SECOND;
-    uint32_t limit_ms = use_sensor ? duration_ms * DRIVE_SENSOR_TIME_PCT / 100u : duration_ms;
+    // blind: exactly blind_ms; sensor: safety limit from the time the planned distance should take
+    uint32_t limit_ms = use_sensor ? blind_ms * (uint32_t) planned_mm / mm * DRIVE_SENSOR_TIME_PCT / 100u : blind_ms;
     int16_t heading = commanded_yaw;  // absolute heading, so leftover turn error is corrected too
     uint32_t start = Timing_GetMilliseconds();
 

@@ -34,8 +34,9 @@ void Car_TurnBy(int16_t delta_deg);
 // Blocking straight drive by about mm millimeters, heading held by the gyro, front distance used if available.
 // grid_mm > 0: walls are on a grid of grid_mm cells, with a wall ahead the car stops in the nearest cell
 // center, so drive errors do not add up. 0 = just mm.
+// No wall seen ahead (no echo or too far to trust): the car drives blind for blind_ms, the time that mm takes.
 // Returns false if a wall ahead was too close for mm: then the car stopped short of it (or did not move).
-bool Car_DriveForward(uint16_t mm, uint16_t grid_mm);
+bool Car_DriveForward(uint16_t mm, uint16_t grid_mm, uint32_t blind_ms);
 
 // Wait while still reading the gyro (use instead of Cy_SysLib_Delay while moving).
 void Car_Wait(uint32_t ms);
